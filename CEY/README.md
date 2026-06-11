@@ -169,3 +169,221 @@ gantt
 최은예의 주요 기여는 데이터 수집부터 전처리, 학습, Isaac Sim 시뮬레이션 재생 시연에 이르는 전체 모방학습 파이프라인의 설계와 구현에 있다.
 
 특히, HDF5 guided snapping으로 왼/오른손 자동 선택을 구현하고, kinematic 물리 버그를 직접 분석·해결하여 yo-yo 현상 없는 안정적인 파지를 달성하였다. 3대 로봇이 독립적으로 pick & place를 수행하는 병렬 시연 시스템과 작업대 실시간 Spawn/Despawn 기능으로 관제탑과의 완전한 실시간 연동 인프라를 완성하였다. 자세한 디버깅 이력은 [DEBUGGING.md](DEBUGGING.md) 파일에서 확인할 수 있다.
+
+---
+
+## 📁 코드 설명
+
+### 🚀 시연
+
+---
+
+#### `sh5_bringup_ros2_3robot.py` ★ 메인 시연 스크립트
+
+3대의 SH5 쌍팔 로봇이 `sg2_in_01`, `sg2_in_02`, `sg2_in_03` 3개 라인에서 독립적으로 동시에 pick & place를 수행하는 Isaac Sim 메인 시연 스크립트.
+
+**주요 클래스:**
+
+| 클래스 | 역할 |
+|--------|------|
+| `BringupSceneCfg` | finalfac.usd 씬 + 3대 로봇 + 3개 상자 구성 |
+| `SlotRegistry` | 고객별 슬롯 유지 할당 (동일 고객 → 동일 슬롯 보장) |
+| `WorkstationManager` | RACK prim 실시간 Despawn/Spawn 관리 |
+| `ReplayController` | 라인별 상태머신 (IDLE→SCANNING→WAITING_DB→REPLAYING→HOMING→DONE) |
+| `FileQueueReader` | `/tmp/sh5_queue.jsonl` 파일큐 폴링 |
+
+**상태머신 흐름:**
+```
+IDLE ──트리거──▶ SCANNING ──QR인식──▶ WAITING_DB ──DB응답──▶ REPLAYING ──완료──▶ HOMING ──▶ DONE ──▶ IDLE
+```
+
+**HDF5-Guided Snapping 파지 로직:**
+```
+매 프레임 (REPLAYING):
+  1. HDF5 box_trajectory로 기준 위치 계산
+  2. 손가락 상태 확인 (finger_pos_avg)
+     - >= 0.80 (닫힘): 가장 가까운 로봇 링크에 즉시 부착
+     - < 0.80 (열림): HDF5 원본 위치 사용 → 자연스러운 릴리즈
+  3. _write_box_pose()로 velocity 없이 위치만 적용
+```
+
+**핵심 파라미터:**
+
+| 파라미터 | 값 | 설명 |
+|---|---|---|
+| `PLAYBACK_SPEED` | `2` | 재생 배속 |
+| `WARMUP_FRAMES` | `30` | 첫 프레임 보간 (~1초) |
+| `ATTACH_FACTOR` | `1.0` | 링크 중심 완전 부착 |
+| `GRASP_DIST` | `0.30 m` | 스냅 활성화 거리 |
+| `FINGER_OPEN_THRESH` | `0.80 rad` | 손가락 열림 임계값 |
+| `FROZEN_SET_DIR` | `datasets/train_data/frozen_set` | 재생 에피소드 경로 |
+| `STAY_HDF5_PATH` | `datasets/stay.hdf5` | 호밍 자세 데이터 |
+
+**실행:**
+```bash
+isaac-python scripts/sh5_bringup_ros2_3robot.py
+```
+
+---
+
+#### `ros2_sh5_bridge.py` ★ ROS 2 브릿지
+
+관제탑(WMS/AMR)과 Isaac Sim 시뮬레이터 사이의 ROS 2 ↔ 파일큐 양방향 브릿지.
+
+**주요 기능:**
+- `/sim/sg2_spawn_trigger` 구독 → `check_warehouse_status` 서비스 호출 → `/tmp/sh5_queue.jsonl` 기록
+- `/tmp/sh5_report_req.jsonl` 모니터링 → `report_inbound_progress` 서비스 호출
+- `/{robot_id}/pause_status` 구독 → `/tmp/sh5_pause.json` 기록 (일시정지 신호)
+
+**파일큐 인터페이스:**
+
+| 파일 | 방향 | 내용 |
+|------|------|------|
+| `/tmp/sh5_queue.jsonl` | Bridge → Isaac | 패키지 투입 트리거 |
+| `/tmp/sh5_qr_req.jsonl` | Isaac → Bridge | QR DB 확인 요청 |
+| `/tmp/sh5_qr_result.jsonl` | Bridge → Isaac | DB 중복 체크 결과 |
+| `/tmp/sh5_report_req.jsonl` | Isaac → Bridge | 입고 완료 보고 |
+| `/tmp/sh5_pause.json` | Bridge → Isaac | 일시정지 신호 |
+| `/tmp/sh5_ws_trigger.jsonl` | Bridge → Isaac | 작업대 Spawn/Despawn |
+
+**실행:**
+```bash
+python3 scripts/ros2_sh5_bridge.py
+```
+
+---
+
+### 📦 데이터 수집
+
+---
+
+#### `coupang_sh5_bringup_v.py` ★ VR 조작 데이터 수집
+
+VR 컨트롤러 + 키보드로 SH5 로봇을 직접 조작하며 HDF5 에피소드를 녹화하는 스크립트.
+
+**주요 클래스:**
+- `VRDemonstrationLogger` — HDF5 에피소드 녹화/저장/취소
+- `TerminalKeyboard` — 키보드 조작 인터페이스
+
+**저장 데이터 구조:**
+```
+episode_XXXXXX/
+├── obs/joint_positions    (T, 14)  관절 각도 (rad)
+├── obs/box_pose           (T,  7)  상자 위치 + 쿼터니언 (xyz + wxyz)
+├── obs/robot_pose         (T,  7)  로봇 베이스 위치 + 쿼터니언
+├── obs/images/left        (T, 120, 160, 3)  좌측 카메라 RGB
+├── obs/images/right       (T, 120, 160, 3)  우측 카메라 RGB
+└── obs/images/topview     (T, 120, 160, 3)  탑뷰 카메라 RGB (QR 스캔용)
+```
+
+**키보드 조작:**
+| 키 | 동작 |
+|---|---|
+| W/S | 전진/후진 |
+| A/D | 좌/우 회전 |
+| R (또는 1) | 🔴 녹화 시작 |
+| T (또는 2) | ⬛ 저장 (성공) |
+| C (또는 3) | 🗑️ 취소 (실패) |
+| B (또는 4) | 📦 상자 리스폰 |
+
+---
+
+### 🔧 데이터 전처리
+
+---
+
+#### `freeze_idle_arms.py` ★ 비동작 팔 고정
+
+데이터 수집 시 키보드 조작에 의해 움직이는 반대쪽 팔(비동작 팔)의 궤적을 `stay.hdf5` 안전 자세로 대체하는 전처리 스크립트.
+
+- **입력**: 원본 HDF5 에피소드
+- **처리**: 타깃 슬롯의 반대쪽 팔 관절값 → stay 자세로 오버라이드
+- **출력**: 방해 팔이 제거된 정제 에피소드
+
+#### `create_subset.py` ★ 서브셋 추출
+
+전처리된 에피소드 중 품질 좋은 것만 선별하여 `frozen_set` 디렉토리에 복사.
+재생 시연과 학습 모두 이 폴더를 사용.
+
+#### `augment_data.py` ★ 데이터 증강
+
+좌우 미러링 및 관절 가우시안 노이즈로 에피소드 수를 늘리는 증강 스크립트.
+- 좌우 미러링: 관절값 부호 반전 + 박스/로봇 Y좌표 반전
+- 노이즈: 관절별 σ=0.01 rad 가우시안 노이즈 추가
+
+#### `augment_slot3_to_slot4.py` 슬롯 변환 증강
+
+슬롯 3 데이터를 좌우 반전하여 슬롯 4 데이터로 변환. 수집량이 적은 슬롯을 보완.
+
+#### `filter_dataset.py` 품질 필터링
+
+trajectory 길이, 관절 속도 이상치 등의 기준으로 실패 에피소드를 자동 제거.
+
+---
+
+### 🧠 학습
+
+---
+
+#### `train_act_v2.py` ★ ACT v2 학습
+
+Vision-ACT 모델을 fine-tuning하는 학습 스크립트. Google Colab A100 환경에서 150 epoch 학습.
+
+```bash
+python3 scripts/train_act_v2.py \
+  --data_dir /datasets/train_data/frozen_set \
+  --output_dir /models/ \
+  --epochs 150 \
+  --batch_size 64
+```
+
+- 입력: joint_positions + image (topview) + slot 번호 (goal 조건)
+- 출력: joint_targets (14D 행동 시퀀스)
+- 체크포인트 자동 저장 및 resume 지원
+
+#### `evaluate_test_vision.py` 추론 평가
+
+Isaac Sim에서 학습된 ACT 모델을 실시간으로 추론하여 로봇을 제어하는 평가 스크립트.
+
+---
+
+### 🔄 HDF5 재생
+
+---
+
+#### `hdf5_replay_player.py` ★ 에피소드 로더
+
+HDF5 파일에서 에피소드를 로드하여 Isaac Sim에 주입하는 로더.
+
+```python
+loader = HDF5EpisodeLoader(slot_num=1)
+episode = loader.load_random_episode()
+# episode["joint_trajectory"]  (T, 14) 관절 궤적
+# episode["box_trajectory"]    (T,  7) 상자 궤적 (xyz + quat)
+# episode["robot_trajectory"]  (T,  7) 로봇 베이스 궤적
+# episode["box_initial_pose"]  초기 상자 위치 (offset 계산용)
+# episode["robot_initial_pose"] 초기 로봇 위치 (offset 계산용)
+```
+
+---
+
+### 📡 USD 에셋
+
+---
+
+#### `assets/scene/finalfac.usd` 물류 창고 씬 (47 MB)
+
+Isaac Sim 메인 씬 파일. 물류 창고 환경 전체 포함.
+- 컨베이어 벨트 3개 라인
+- 작업대 RACK_01~10
+- AMR 경로 및 마킹
+- 조명, 바닥, 배경
+
+#### `assets/scene/RACK.usd` 작업대 모델
+
+`WorkstationManager`에서 SPAWN 시 신규 생성할 때 사용하는 작업대 단일 USD 에셋.
+
+#### `assets/box_assets/PKG_*.usd` 상자 USD 모델
+
+QR 코드가 부착된 쿠팡 택배 상자 USD 모델. 패키지 ID별로 개별 파일로 관리.
+
