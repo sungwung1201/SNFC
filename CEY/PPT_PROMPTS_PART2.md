@@ -269,7 +269,7 @@ Create a clean slide with white background.
 
 Header strip:
 - Title: "2주간 개발 이력"
-- Subtitle: "2026.05.26 ~ 2026.06.12"
+- Subtitle: "2026.05.29 ~ 2026.06.12"
 
 Layout: Vertical timeline (center line with left/right events).
 
@@ -336,30 +336,43 @@ Table (full width):
 Create a clean slide with white background.
 
 Header strip:
-- Title: "데이터셋 구성 현황"
-- Subtitle: "수집 → 전처리 → 증강 → 최종 학습셋"
+- Title: "데이터셋 구성 현황 (실측)"
+- Subtitle: "수집 → freeze 전처리 → 증강 | /datasets/train_data/vision_data"
 
 Layout: 2 columns.
 
-Left column (bar chart area):
-- Header: "에피소드 수 현황"
-- Bar chart placeholder:
-  원본 수집: 400 episodes
-  방해 팔 제거: 380 episodes
-  증강 후: 760+ episodes
-  frozen_set (최종): 400 episodes
+Left column:
+- Header: "슬롯별 실수집 에피소드 (HDF5 실측값)"
+- Bar chart placeholder (actual counts):
+  Slot 1: vision_slot1_1_f(99) + vision_slot1_2(100) = 199 eps
+  Slot 2: vision_slot2_1_f(99) + vision_slot2_2(100) = 199 eps
+  Slot 3: vision_slot3_1(75)   + vision_slot3_2_f(124) = 199 eps
+  Slot 4: vision_slot4_1_f(74) + vision_slot4_2(120)   = 194 eps
+  총계: 791 episodes (8개 HDF5 파일)
+
+- Sub-note:
+  * 파일명 _f = freeze_idle_arms 전처리 완료본
+  * 평균 ~893 frames/episode (약 30초)
 
 Right column (table):
-- Header: "슬롯별 분포"
+- Header: "슬롯별 HDF5 파일 상세"
 - Table:
-  | 슬롯 | 위치 | 원본 | 증강 후 |
-  |---|---|---|---|
-  | 1 | 앞 우측 상단 | 100 | 200 |
-  | 2 | 앞 좌측 하단 | 100 | 200 |
-  | 3 | 뒤 우측 상단 | 100 | 200 |
-  | 4 | 뒤 좌측 하단 | 100 | 200 |
+  | 슬롯 | 파일명 | 에피소드 | 평균프레임 | frozen |
+  |---|---|---|---|---|
+  | 1 (앞 우) | vision_slot1_1_f | 99 | ~877 | ✅ |
+  | 1 (앞 우) | vision_slot1_2   | 100 | ~811 | ❌ |
+  | 2 (앞 좌) | vision_slot2_1_f | 99 | ~1303 | ✅ |
+  | 2 (앞 좌) | vision_slot2_2   | 100 | ~925 | ❌ |
+  | 3 (뒤 우) | vision_slot3_1   | 75 | ~893 | ❌ |
+  | 3 (뒤 우) | vision_slot3_2_f | 124 | ~686 | ✅ |
+  | 4 (뒤 좌) | vision_slot4_1_f | 74 | ~1194 | ✅ |
+  | 4 (뒤 좌) | vision_slot4_2   | 120 | ~653 | ❌ |
+  | **합계** | **8개** | **791** | **~893** | |
 
-Bottom note: "증강 방법: 좌우 미러링(slot3→4) + 관절 가우시안 노이즈(σ=0.01rad)"
+- obs 구조: joint_positions(63D), box_pose(7D), rack_pose(7D), robot_pose(7D), images(Left/Right/TopView 160×120)
+
+Bottom note: "증강: augment_slot3_to_slot4.py (slot3→4 좌우반전) + augment_data.py (미러링+노이즈 σ=0.01rad)"
+
 
 ---
 
