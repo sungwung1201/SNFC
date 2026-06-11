@@ -2,7 +2,7 @@
 
 > **기간**: 2026년 5월 29일 ~ 2026년 6월 12일
 > **발표일**: 2026년 6월 12일
-> **역할**: 팀장 / 프로젝트 기획 / 전체 시나리오 설계 / 팀원 조율 / GitHub README 문서 작업 / PPT 제작 / 발표 준비 및 발표 / ROS2·IsaacSim 연동 디버깅 / AMR 주행 로직 개선 / 네트워크 통신 문제 해결
+> **역할**: 팀장 / 프로젝트 기획 / 전체 시나리오 설계 / 팀원 조율 / GitHub README 문서 작업 / PPT 제작 / 발표 준비 및 발표 / ROS2·IsaacSim 연동 디버깅 / AMR 주행 로직 개선 / Global Arbiter 기반 충돌 회피 구조 분석 / ROS2 Bridge 안정화 / 네트워크 통신 문제 해결
 > **프로젝트 개요**: 협동3 프로젝트는 IsaacSim 환경에서 AMR 5대가 작업대를 픽업·운반·배치하는 물류 자동화 시뮬레이션이다. 외부 PC 또는 Control Tower에서 ROS2 Action 명령을 내리면, bridge가 이를 JSON command로 변환하고, IsaacSim controller가 해당 명령을 읽어 AMR 주행, 작업대 운반, 상태 반환을 수행하는 구조로 구현하였다.
 
 ---
@@ -100,6 +100,37 @@
     <tr><td nowrap>bridge 실행 스크립트 run_bridge_gpu.sh 동작 확인</td><td nowrap>6월 8일</td><td nowrap>성웅</td><td nowrap>ROS2/실행환경</td><td nowrap>실행 테스트</td><td nowrap>완료</td></tr>
     <tr><td nowrap>ros2 node list 및 ros2 action list를 통한 bridge 정상 여부 검증</td><td nowrap>6월 8일</td><td nowrap>성웅</td><td nowrap>ROS2/검증</td><td nowrap>통신 검증</td><td nowrap>완료</td></tr>
     <tr><td nowrap>상대 PC에서 좌표 또는 target_location 기반 명령을 내리는 구조 정리</td><td nowrap>6월 11일</td><td nowrap>성웅</td><td nowrap>ROS2/명령 구조</td><td nowrap>명령 흐름 정리</td><td nowrap>완료</td></tr>
+  </tbody>
+</table>
+
+---
+
+
+<h2>성웅 담당 작업 타임라인 (Global Arbiter 및 Bridge 안정화)</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th nowrap>작업명</th>
+      <th nowrap>날짜</th>
+      <th nowrap>담당자</th>
+      <th nowrap>파트</th>
+      <th nowrap>단계</th>
+      <th nowrap>완료 여부</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td nowrap>Global Arbiter가 모든 AMR의 다음 이동 후보를 tick 단위로 승인하는 구조 분석</td><td nowrap>6월 8일</td><td nowrap>성웅</td><td nowrap>Global Arbiter</td><td nowrap>중앙 승인 구조 분석</td><td nowrap>완료</td></tr>
+    <tr><td nowrap>same-cell 충돌, edge-swap 충돌, head-on 충돌을 Global Arbiter에서 차단하는 기준 정리</td><td nowrap>6월 8일</td><td nowrap>성웅</td><td nowrap>충돌 회피</td><td nowrap>안전 규칙 정리</td><td nowrap>완료</td></tr>
+    <tr><td nowrap>작업대 운반 중 rack footprint와 AMR footprint를 함께 고려하는 승인 조건 분석</td><td nowrap>6월 9일</td><td nowrap>성웅</td><td nowrap>Global Arbiter/Footprint</td><td nowrap>운반 안전성 분석</td><td nowrap>완료</td></tr>
+    <tr><td nowrap>same-direction convoy following과 tail-release 정책을 적용한 주행 흐름 확인</td><td nowrap>6월 9일</td><td nowrap>성웅</td><td nowrap>교통 흐름 제어</td><td nowrap>다중 AMR 흐름 분석</td><td nowrap>완료</td></tr>
+    <tr><td nowrap>첫 이동 cell이 Global Arbiter에서 reject될 때 wait/no_path가 증가하는 원인 분석</td><td nowrap>6월 10일</td><td nowrap>성웅</td><td nowrap>Global Arbiter/디버깅</td><td nowrap>병목 원인 분석</td><td nowrap>완료</td></tr>
+    <tr><td nowrap>오래 대기한 AMR에 priority aging을 적용해야 하는 상황 정리</td><td nowrap>6월 10일</td><td nowrap>성웅</td><td nowrap>우선순위 정책</td><td nowrap>대기 완화 구조 분석</td><td nowrap>완료</td></tr>
+    <tr><td nowrap>Global Arbiter reject 결과를 cost-aware reroute 판단과 연결하는 구조 설계</td><td nowrap>6월 11일</td><td nowrap>성웅</td><td nowrap>Cost Planner/Arbiter</td><td nowrap>WAIT/REROUTE 연결</td><td nowrap>완료</td></tr>
+    <tr><td nowrap>Bridge active registry로 active_workstations, active_targets, active_amrs 관리 구조 정리</td><td nowrap>6월 11일</td><td nowrap>성웅</td><td nowrap>ROS2 Bridge</td><td nowrap>중복 명령 차단</td><td nowrap>완료</td></tr>
+    <tr><td nowrap>result, cancel, timeout 발생 시 Bridge active registry를 해제하는 cleanup 흐름 정리</td><td nowrap>6월 11일</td><td nowrap>성웅</td><td nowrap>Bridge Lifecycle</td><td nowrap>상태 해제 구조</td><td nowrap>완료</td></tr>
+    <tr><td nowrap>ROS2 Action goal에서 command JSON으로 변환되는 필드와 command_id 추적 기준 문서화</td><td nowrap>6월 11일</td><td nowrap>성웅</td><td nowrap>Bridge Queue</td><td nowrap>명령 추적 구조</td><td nowrap>완료</td></tr>
+    <tr><td nowrap>Global Arbiter와 Bridge 구조를 GitHub README/DEBUGGING 문서에 보강</td><td nowrap>6월 12일</td><td nowrap>성웅</td><td nowrap>GitHub 문서화</td><td nowrap>최종 문서 반영</td><td nowrap>완료</td></tr>
   </tbody>
 </table>
 
@@ -343,6 +374,13 @@ gantt
     bridge 실행 및 action list 검증                 :done, r4, 2026-06-08, 1d
     bridge v43 admission guard 패치                 :done, r5, 2026-06-11, 1d
 
+    section Global Arbiter/Bridge 안정화
+    Global Arbiter tick 승인 구조 분석              :done, g1, 2026-06-08, 1d
+    same-cell/edge-swap 충돌 차단 규칙 정리          :done, g2, 2026-06-08, 1d
+    rack footprint 기반 운반 안전성 확인             :done, g3, 2026-06-09, 1d
+    Arbiter reject와 cost-aware reroute 연결         :done, g4, 2026-06-11, 1d
+    Bridge active registry cleanup 정리              :done, g5, 2026-06-11, 1d
+
     section IsaacSim Controller
     IsaacSim stage 및 AMR prim 구조 확인             :done, c1, 2026-05-29, 1d
     AMR/작업대 제어 구조 확인                       :done, c2, 2026-06-05, 1d
@@ -381,6 +419,8 @@ gantt
 | 4  | 외부 명령 연동 구조 결정               | 상대 PC 또는 Control Tower에서 ROS2 Action으로 AMR 작업 명령을 내리는 구조로 설계                  | 6월 5일  |
 | 5  | per-AMR Action 구조 적용         | `/amr_01/manage_workstation` ~ `/amr_05/manage_workstation`으로 특정 AMR 지정 명령 가능 | 6월 6일  |
 | 6  | bridge_queue 구조 확정           | commands/status/results JSON 파일을 통해 ROS2 bridge와 IsaacSim controller를 분리      | 6월 7일  |
+| 6-1 | Global Arbiter 구조 명확화        | 모든 AMR의 다음 이동 후보를 중앙에서 승인하고, same-cell/edge-swap/footprint 충돌을 차단하는 구조로 정리 | 6월 8일  |
+| 6-2 | Bridge Lifecycle 관리 보강        | command_id 기준으로 active command를 추적하고, result/cancel/timeout 시 registry를 해제하는 흐름 정리 | 6월 11일 |
 | 7  | QR 기반 위치 인식 구조 반영            | AMR 하단 카메라가 바닥 QR을 읽어 grid cell을 갱신하는 구조 확인                                   | 6월 7일  |
 | 8  | Local Macro Route 적용         | SG 진입부에서 일반 A*만으로는 불안정하여 deterministic local route 구조 사용                      | 6월 10일 |
 | 9  | CycloneDDS 통신 문제 해결          | Thunderbolt 인터페이스 고정 문제를 Wi-Fi 인터페이스 기준으로 수정                                  | 6월 10일 |
@@ -410,11 +450,88 @@ gantt
 
 ---
 
+
+## 🧠 Global Arbiter와 Bridge 핵심 구현 요약
+
+### 1. Bridge는 “명령 변환 계층”으로 분리하였다
+
+협동3 시스템에서 Bridge는 AMR을 직접 움직이는 코드가 아니라, 외부 ROS2 명령과 IsaacSim controller 사이를 연결하는 중간 계층이다. 상대 PC 또는 Control Tower가 ROS2 Action Goal을 보내면 Bridge는 이를 `command_id`가 포함된 JSON 명령으로 변환하고, `bridge_queue/commands` 폴더에 저장한다. 이후 IsaacSim controller가 해당 JSON을 읽어 실제 AMR 주행을 수행한다.
+
+```text
+ROS2 Action Goal
+→ Bridge 수신
+→ command_id 생성
+→ command JSON 저장
+→ Controller가 command JSON 읽음
+→ status/result JSON 작성
+→ Bridge가 Action feedback/result 반환
+```
+
+이 구조를 사용한 이유는 ROS2 통신 계층과 IsaacSim 제어 계층을 직접 강하게 묶지 않기 위해서이다. Bridge는 명령 접수, command_id 추적, feedback/result 반환, cancel 처리, 중복 명령 차단을 담당하고, controller는 실제 AMR 배정, 경로계획, 작업대 운반, 배치, 복귀를 담당한다.
+
+### 2. Bridge Admission Guard로 불가능한 명령을 사전에 차단하였다
+
+다중 AMR 환경에서는 같은 작업대나 같은 목적지로 동시에 명령이 들어오면 controller가 아무리 경로계획을 잘해도 물리적으로 해결할 수 없다. 따라서 Bridge 단계에서 다음 조건을 먼저 검사하도록 정리하였다.
+
+```text
+1. 같은 workstation_id가 이미 작업 중이면 reject
+2. 같은 target_location 또는 target_cell이 이미 예약되어 있으면 reject
+3. 같은 preferred AMR이 이미 작업 중이면 reject
+4. 명령이 완료, 실패, 취소, timeout되면 active registry에서 해제
+```
+
+이를 통해 잘못된 명령이 IsaacSim controller까지 내려가기 전에 `DUPLICATE_WORKSTATION`, `DUPLICATE_TARGET`, `DUPLICATE_AMR`로 차단되도록 하였다.
+
+### 3. Global Arbiter는 “다중 AMR 이동 승인 계층”으로 정리하였다
+
+Global Arbiter는 각 AMR이 계산한 다음 이동 후보를 그대로 실행시키지 않고, 매 tick마다 전체 AMR의 이동 요청을 모아 충돌 가능성을 검사한 뒤 승인 또는 대기시킨다.
+
+```text
+각 AMR이 next_cell 후보 계산
+→ Global Arbiter가 전체 이동 후보 수집
+→ same-cell 충돌 검사
+→ edge-swap 충돌 검사
+→ rack footprint 충돌 검사
+→ 예약 테이블과 비교
+→ 승인된 AMR만 이동
+→ 거부된 AMR은 WAIT 또는 REROUTE 판단
+```
+
+Global Arbiter가 필요한 이유는 AMR이 1대일 때는 로컬 경로계획만으로 충분하지만, AMR 5대가 동시에 움직이면 각 AMR이 개별적으로 안전한 경로를 계산해도 같은 tick에 같은 cell을 요구하거나 서로 자리를 맞바꾸는 충돌이 발생할 수 있기 때문이다.
+
+### 4. Global Arbiter와 Cost-aware Reroute를 연결하였다
+
+기존에는 Global Arbiter가 첫 이동 cell을 reject하면 AMR이 단순히 기다리는 구조였다. 개선 후에는 reject된 cell을 temporary blocked cell로 보고, 그 cell을 피하는 detour A*를 다시 계산한다. 이후 기다리는 비용과 우회 비용을 비교해 `WAIT` 또는 `REROUTE`를 선택한다.
+
+```text
+Arbiter reject 발생
+→ rejected first cell을 임시 blocked cell로 지정
+→ detour A* 재계산
+→ wait_cost와 detour_cost 비교
+→ wait가 유리하면 WAIT
+→ 우회가 유리하면 REROUTE
+```
+
+이 구조 덕분에 협동3 시스템은 단순히 “충돌하지 않게 멈추는 구조”에서 “대기와 우회를 비교해 더 효율적인 이동을 선택하는 구조”로 개선되었다.
+
+### 5. 최종적으로 분리된 책임 구조
+
+| 계층 | 담당 역할 | 핵심 개선 |
+| --- | --- | --- |
+| ROS2 Action Client | 외부 PC 또는 Control Tower에서 AMR 작업 명령 전송 | 명령 송신 계층 분리 |
+| Fleet Manager Bridge | Action goal을 JSON command로 변환하고 feedback/result 반환 | admission guard, active registry, command_id 추적 |
+| Bridge Queue | commands/status/results/cancel/done 파일 기반 비동기 연동 | ROS2와 IsaacSim 결합도 감소 |
+| IsaacSim Controller | AMR 배정, 작업대 픽업·운반·배치·복귀 수행 | phase 기반 작업 제어 |
+| Global Arbiter | 모든 AMR의 tick 단위 이동 승인 | same-cell, edge-swap, footprint 충돌 차단 |
+| Cost-aware Reroute | Arbiter reject 시 WAIT/REROUTE 판단 | 병목 상황에서 효율 개선 |
+
+---
+
 ## ✅ 최종 정리
 
 성웅의 협동3 프로젝트 기여는 단일 코드 수정에 한정되지 않는다. 프로젝트의 전체 방향을 기획하고, 실제 창고 물류 자동화를 가정한 AMR Fleet 시나리오를 설계했으며, 팀원별 구현 방향을 조율하고, GitHub 문서화와 PPT 제작, 최종 발표까지 담당한 팀장 역할을 수행하였다.
 
-기술적으로는 ROS2 Action 기반 외부 명령 구조, IsaacSim controller 기반 AMR 주행 구조, bridge_queue 기반 JSON 연동 구조, CycloneDDS 네트워크 설정, QR 기반 위치 인식, Time A* 경로계획, Local Macro Route, admission guard, cost-aware reroute까지 프로젝트의 핵심 연결부를 분석하고 개선하였다.
+기술적으로는 ROS2 Action 기반 외부 명령 구조, IsaacSim controller 기반 AMR 주행 구조, bridge_queue 기반 JSON 연동 구조, Bridge admission guard, Global Arbiter 기반 tick 단위 이동 승인 구조, CycloneDDS 네트워크 설정, QR 기반 위치 인식, Time A* 경로계획, Local Macro Route, cost-aware reroute까지 프로젝트의 핵심 연결부를 분석하고 개선하였다.
 
 특히 중복 목적지로 인해 AMR이 멈추는 문제를 단순 경로계획 문제가 아니라 명령 충돌 문제로 분류하고, bridge 단계에서 중복 workstation, 중복 target, 중복 AMR 명령을 차단하도록 개선한 점이 주요 성과이다. 또한 AMR이 막혔을 때 무조건 기다리는 방식에서 벗어나, 기다림과 우회 비용을 비교하는 cost-aware global reroute 구조를 추가하여 다중 AMR 주행의 효율성을 높였다.
 
