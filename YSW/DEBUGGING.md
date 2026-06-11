@@ -14,14 +14,17 @@
 ```text
 1. 전체 개요
 2. 시스템 구조
-3. 디버깅 원칙
-4. 날짜별 진행 타임라인
-5. 계층별 디버깅
-6. 주요 이슈별 상세 디버깅 카드
-7. 적용한 패치 정리
-8. 검증 방법
-9. 최종 결과
-10. 성과 및 기여
+3. ROS2 Bridge 상세 구조
+4. bridge_queue 파일 연동 방식
+5. Global Arbiter 상세 구조
+6. 디버깅 원칙
+7. 날짜별 진행 타임라인
+8. 계층별 디버깅
+9. 주요 이슈별 상세 디버깅 카드
+10. 적용한 패치 정리
+11. 검증 방법
+12. 최종 결과
+13. 성과 및 기여
 ```
 
 ---
@@ -214,6 +217,286 @@ controller가 작업 진행 상태를 기록한다.
 
 ---
 
+## 4.4 ROS2 Fleet Manager Bridge 상세 구조
+
+Bridge는 협동3 시스템에서 외부 명령 계층과 IsaacSim 제어 계층을 분리하는 역할을 한다. 즉, Bridge 자체가 AMR의 경로를 계산하거나 stage 안의 prim을 직접 움직이는 것이 아니라, ROS2 Action Goal을 controller가 이해할 수 있는 JSON command로 바꾸고, controller가 작성한 status/result를 다시 ROS2 Action feedback/result로 반환한다.
+
+### Bridge의 핵심 책임
+
+```text
+1. ROS2 Action Server 실행
+2. /manage_workstation 전역 Action 제공
+3. /amr_01/manage_workstation ~ /amr_05/manage_workstation per-AMR Action 제공
+4. Action Goal 수신 후 command_id 생성
+5. command JSON을 bridge_queue/commands에 저장
+6. controller가 작성한 status JSON을 읽어 Action feedback 반환
+7. controller가 작성한 result JSON을 읽어 Action result 반환
+8. cancel 요청을 bridge_queue/cancel에 기록
+9. 완료된 command를 done 처리
+10. 중복 명령을 admission guard에서 reject
+```
+
+### Bridge가 직접 하지 않는 일
+
+```text
+1. AMR 경로계획을 직접 수행하지 않음
+2. target_location을 최종 주행 경로로 직접 변환하지 않음
+3. IsaacSim stage의 AMR prim을 직접 이동시키지 않음
+4. 작업대 lifting/placing 물리 동작을 직접 수행하지 않음
+5. 다중 AMR 이동 충돌을 직접 승인하지 않음
+```
+
+이 역할 분리가 중요한 이유는 ROS2 통신 문제와 IsaacSim 제어 문제를 분리해서 디버깅할 수 있기 때문이다. Action Server가 보이지 않으면 Bridge 또는 DDS 문제로 보고, command JSON은 생성되지만 AMR이 움직이지 않으면 controller 또는 stage 문제로 볼 수 있다.
+
+### ROS2 Action과 JSON command 변환 흐름
+
+```text
+[Action Goal]
+workstation_id = WS05
+target_location = sg2_in_03_B
+preferred_amr_name = AMR_04
+require_preferred_amr = true
+        |
+        v
+[Bridge]
+command_id 생성
+입력 필드 정규화
+중복 명령 검사
+JSON command 작성
+        |
+        v
+[bridge_queue/commands/CMD_xxx.json]
+```
+
+예시 command JSON은 다음과 같은 의미를 가진다.
+
+```json
+{
+  "command_id": "CMD_f9bb42e729e8",
+  "workstation_id": "WS07",
+  "target_location": "sg2_in_01_B",
+  "target_x": 0.0,
+  "target_y": 0.0,
+  "target_yaw": 0.0,
+  "preferred_amr_name": "AMR_05",
+  "preferred_amr": "AMR_05",
+  "require_preferred_amr": true,
+  "created_at": 1781167628.6863856
+}
+```
+
+| 필드 | 의미 |
+| --- | --- |
+| `command_id` | 명령 추적용 고유 ID |
+| `workstation_id` | 이동시킬 작업대 ID |
+| `target_location` | SG, stage 등 논리 목적지 이름 |
+| `target_x`, `target_y`, `target_yaw` | 좌표 기반 명령을 사용할 때의 목표 pose |
+| `preferred_amr_name` | 특정 AMR을 우선 또는 강제로 배정할 때 사용하는 이름 |
+| `require_preferred_amr` | true이면 해당 AMR이 아니면 작업을 수행하지 않음 |
+| `created_at` | 명령 생성 시각 |
+
+### Bridge Lifecycle
+
+Bridge는 command를 생성한 뒤 끝나는 것이 아니라 command의 생명주기를 추적한다.
+
+```text
+RECEIVED
+→ ADMITTED
+→ COMMAND_WRITTEN
+→ RUNNING
+→ FEEDBACK_PUBLISHING
+→ RESULT_RECEIVED
+→ DONE
+```
+
+실패 또는 취소가 발생하면 다음 흐름으로 정리된다.
+
+```text
+RECEIVED
+→ ADMITTED
+→ COMMAND_WRITTEN
+→ CANCEL_REQUESTED 또는 TIMEOUT
+→ RESULT_FAILED
+→ CLEANUP
+```
+
+### Admission Guard
+
+Bridge v43에서 추가한 admission guard는 잘못된 명령이 controller로 내려가기 전에 차단하는 방어 계층이다.
+
+```text
+새 command 수신
+→ workstation key 생성
+→ target key 생성
+→ AMR key 생성
+→ active registry와 비교
+→ 중복 없음: command JSON 작성
+→ 중복 있음: Action result를 failed로 반환하고 reject
+```
+
+관리하는 active registry는 다음과 같다.
+
+```text
+_active_commands      : command_id 기준 전체 active command
+_active_workstations  : workstation_id 기준 중복 작업대 방지
+_active_targets       : target_location, target_cell, target_qr_id 기준 목적지 중복 방지
+_active_amrs          : preferred_amr 기준 AMR 중복 작업 방지
+```
+
+reject 기준은 다음과 같다.
+
+```text
+DUPLICATE_WORKSTATION : 같은 작업대가 이미 다른 명령에서 사용 중
+DUPLICATE_TARGET      : 같은 목적지 또는 같은 target_cell이 이미 사용 중
+DUPLICATE_AMR         : 같은 preferred AMR이 이미 다른 작업 수행 중
+INVALID_GOAL          : 필수 필드가 부족하거나 해석 불가능한 goal
+```
+
+이 구조의 핵심은 “controller가 해결할 수 없는 명령은 controller에 보내지 않는다”는 것이다. 같은 목적지에 작업대 2개를 넣는 문제는 경로계획이나 Arbiter로 해결할 수 없기 때문에 Bridge에서 reject하는 것이 맞다.
+
+### Bridge Queue의 파일 의미
+
+| 폴더 | 작성 주체 | 읽는 주체 | 의미 |
+| --- | --- | --- | --- |
+| `commands/` | Bridge | Controller | 실행할 작업 명령 |
+| `status/` | Controller | Bridge | 진행 중인 작업 상태 |
+| `results/` | Controller | Bridge | 성공/실패 결과 |
+| `cancel/` | Bridge | Controller | 취소 요청 |
+| `done/` | Bridge 또는 Controller | Bridge/Controller | 처리 완료 표시 |
+
+---
+
+## 4.5 Global Arbiter 상세 구조
+
+Global Arbiter는 다중 AMR 환경에서 각 AMR의 이동을 중앙에서 승인하는 계층이다. 각 AMR이 개별적으로 A* 경로를 계산하더라도, 동시에 움직이면 같은 cell에 들어가거나 서로 자리를 맞바꾸는 충돌이 생길 수 있다. 이를 막기 위해 매 tick마다 모든 AMR의 다음 이동 후보를 모아 승인/거부를 결정한다.
+
+### Global Arbiter가 필요한 이유
+
+AMR이 1대라면 경로계획 결과를 그대로 실행해도 큰 문제가 없다. 하지만 AMR 5대가 동시에 움직이면 다음 문제가 발생한다.
+
+```text
+1. 두 AMR이 같은 tick에 같은 cell로 이동하려는 same-cell 충돌
+2. 두 AMR이 서로의 현재 위치를 맞바꾸려는 edge-swap 충돌
+3. 작업대를 들고 있는 AMR의 footprint가 다른 AMR 또는 작업대와 겹치는 문제
+4. 좁은 SG 진입 구간에서 여러 AMR이 동시에 진입하는 병목
+5. 한 AMR이 기다리기만 하고 우회하지 못하는 starvation 문제
+```
+
+Global Arbiter는 이러한 충돌을 AMR 개별 planner가 아니라 전체 fleet 관점에서 검사한다.
+
+### Tick 단위 승인 흐름
+
+```text
+1. 각 AMR이 현재 phase와 target_cell 기준으로 다음 이동 후보를 계산한다.
+2. 각 AMR은 next_cell, current_cell, carry 여부, priority, planned_path를 Arbiter에 제출한다.
+3. Arbiter는 모든 AMR의 후보를 한 번에 모은다.
+4. 같은 cell을 요구하는 AMR이 있는지 검사한다.
+5. 서로 current_cell과 next_cell을 맞바꾸는 edge-swap이 있는지 검사한다.
+6. 작업대 운반 중인 AMR의 rack footprint가 다른 AMR이나 작업대와 겹치는지 검사한다.
+7. Reservation Table과 비교해 시간축 충돌을 검사한다.
+8. 승인 가능한 AMR만 이동시킨다.
+9. 거부된 AMR은 WAIT 상태가 되거나 cost-aware reroute 판단으로 넘어간다.
+```
+
+### Arbiter 판단 의사코드
+
+```text
+for each tick:
+    proposals = collect_next_cell_from_all_amrs()
+
+    for proposal in sort_by_priority(proposals):
+        if target_cell_already_approved(proposal.next_cell):
+            reject(proposal, reason="SAME_CELL")
+            continue
+
+        if edge_swap_with_approved_move(proposal):
+            reject(proposal, reason="EDGE_SWAP")
+            continue
+
+        if rack_footprint_conflict(proposal):
+            reject(proposal, reason="FOOTPRINT_CONFLICT")
+            continue
+
+        if reservation_table_conflict(proposal):
+            reject(proposal, reason="RESERVED_CELL")
+            continue
+
+        approve(proposal)
+```
+
+### 주요 충돌 차단 규칙
+
+| 규칙 | 설명 | 처리 |
+| --- | --- | --- |
+| same-cell block | 두 AMR이 같은 next_cell을 요구 | 우선순위 높은 AMR 승인, 나머지 reject |
+| edge-swap block | A가 B 위치로, B가 A 위치로 이동 | 둘 중 하나 reject |
+| footprint block | 작업대 운반 AMR의 점유 영역이 다른 객체와 겹침 | 운반 AMR 또는 후순위 AMR reject |
+| static blocker block | future route에 정적 작업대가 있음 | 해당 route reject |
+| reservation block | 시간 예약 테이블에서 이미 점유된 cell | wait 또는 reroute |
+
+### 작업대 운반 중 별도 제약
+
+작업대를 들고 있는 AMR은 빈 AMR보다 더 보수적으로 처리했다.
+
+```text
+1. 대각선 이동 제한 또는 강한 penalty 적용
+2. rack footprint 포함 충돌 검사
+3. 좁은 SG 진입 구간에서 local macro route 우선 사용
+4. 우회 경로가 너무 길면 WAIT 선택
+5. 회전 또는 placing 중에는 QR cell 갱신 차단
+```
+
+이유는 작업대를 들고 있는 상태에서는 AMR 자체보다 점유 면적이 커지고, 회전 또는 대각선 이동 시 주변 작업대와 충돌할 가능성이 높기 때문이다.
+
+### Convoy Following과 Tail Release
+
+같은 방향으로 이동하는 AMR들이 한 줄로 움직이는 경우에는 앞 AMR이 빠져나간 cell을 뒤 AMR이 따라가는 방식이 가능하다. 이를 완전히 막으면 불필요한 대기가 증가한다.
+
+```text
+앞 AMR: cell A → cell B
+뒤 AMR: cell C → cell A
+```
+
+이 경우 앞 AMR이 먼저 이동하고 tail cell이 release되는 구조라면 뒤 AMR의 진입을 허용할 수 있다. 단, 반대 방향으로 맞바꾸는 edge-swap과는 구분해야 한다.
+
+### Priority Aging
+
+특정 AMR이 계속 reject되면 wait_steps가 증가한다. 이때 단순히 매번 같은 우선순위로 검사하면 특정 AMR이 계속 밀릴 수 있다. 따라서 오래 기다린 AMR에는 aging 점수를 부여해 우선순위를 점진적으로 높이는 구조가 필요하다.
+
+```text
+priority_score = base_priority + wait_steps * aging_weight
+```
+
+작업대를 들고 있는 AMR은 통로를 계속 막을 수 있기 때문에 상황에 따라 더 높은 우선순위를 줄 수 있다. 반대로 좁은 구간에서는 작업대 운반 AMR의 무리한 우회를 막기 위해 carry penalty를 적용한다.
+
+### Cost-aware Reroute와의 연결
+
+Global Arbiter가 next_cell을 reject하면 controller는 다음 두 선택지를 비교한다.
+
+```text
+1. WAIT: 현재 위치에서 기다린다.
+2. REROUTE: reject된 cell을 임시 blocked cell로 보고 우회 경로를 다시 계산한다.
+```
+
+판단 흐름은 다음과 같다.
+
+```text
+Arbiter reject
+→ rejected next_cell 확인
+→ 해당 cell을 temporary blocked cell로 설정
+→ detour A* 실행
+→ wait_cost 계산
+→ detour_cost 계산
+→ wait_cost <= detour_cost 이면 WAIT
+→ detour_cost < wait_cost 이면 REROUTE
+```
+
+따라서 Global Arbiter는 단순히 충돌을 막는 계층이고, Cost-aware Reroute는 Arbiter가 거부한 상황에서 기다릴지 돌아갈지를 판단하는 계층이다.
+
+---
+
+---
+
 # 5. 날짜별 진행 타임라인
 
 ## 5월 29일
@@ -283,6 +566,8 @@ controller가 작업 진행 상태를 기록한다.
 - Time A* 기반 경로계획 구조 분석
 - Reservation Table 기반 time-indexed cell 예약 구조 분석
 - edge swap 충돌 방지 구조 확인
+- Global Arbiter가 tick 단위로 모든 AMR의 next_cell을 승인/거부하는 구조 분석
+- same-cell, edge-swap, footprint 충돌 차단 기준 정리
 - bridge 실행 및 ros2 action list 검증
 ```
 
@@ -314,7 +599,8 @@ controller가 작업 진행 상태를 기록한다.
 - sg2_in_03_B target_cell=(4,-5) 중복 문제 분석
 - bridge v43 admission guard 패치 적용
 - DUPLICATE_WORKSTATION / DUPLICATE_TARGET / DUPLICATE_AMR reject 구조 반영
-- wait vs detour cost 판단 필요성 도출
+- Bridge active registry와 result/cancel/timeout cleanup 흐름 정리
+- Global Arbiter reject 이후 wait vs detour cost 판단 필요성 도출
 - controller v42 cost-aware global reroute 패치 적용
 - COST_DECISION 로그 구조 적용
 - 다중 AMR 시나리오 테스트 완료
@@ -372,6 +658,22 @@ controller 문제:
 - 같은 workstation_id 중복
 - 같은 AMR에 동시에 명령
 ```
+
+Global Arbiter 문제:
+```text
+- 각 AMR의 개별 A* 경로는 존재하지만 첫 next_cell이 계속 reject됨
+- same-cell 또는 edge-swap 충돌로 tick 단위 이동 승인이 거부됨
+- 작업대 운반 footprint 때문에 일반 AMR보다 더 많은 cell이 막힘
+- wait_steps가 증가하지만 우회 판단이 부족함
+```
+
+Bridge Lifecycle 문제:
+```text
+- command JSON은 생성되었지만 result가 회수되지 않음
+- 완료된 command가 active registry에서 해제되지 않아 다음 명령이 계속 reject됨
+- cancel 또는 timeout 후 active_workstations, active_targets, active_amrs 정리가 필요함
+```
+
 
 ---
 
@@ -858,6 +1160,77 @@ SG 진입 구간의 안정성이 증가했고, AMR이 작업대 근처에서 불
 
 ---
 
+
+# ISSUE 6-1. Global Arbiter 구조가 문서에 충분히 드러나지 않는 문제
+
+## 1. 증상
+
+기존 문서에는 Time A*, Reservation Table, edge swap, cost-aware reroute는 언급되어 있었지만, 실제 다중 AMR 이동을 최종 승인하는 Global Arbiter의 역할이 별도 구조로 충분히 설명되지 않았다.
+
+이 때문에 GitHub 문서만 읽으면 다음 구분이 모호해질 수 있었다.
+
+```text
+A* Planner가 하는 일
+Reservation Table이 하는 일
+Global Arbiter가 하는 일
+Cost-aware Reroute가 하는 일
+Bridge가 하는 일
+```
+
+## 2. 문제점
+
+Global Arbiter 설명이 부족하면 다중 AMR이 왜 멈추는지, 왜 wait/no_path가 증가하는지, 왜 특정 상황에서 reroute가 필요한지 설명하기 어렵다.
+
+예를 들어 AMR이 움직이지 않는 상황은 단순히 “경로가 없음”이 아니라 다음 중 하나일 수 있다.
+
+```text
+1. A*가 실제로 경로를 찾지 못함
+2. 경로는 있지만 첫 next_cell이 Arbiter에서 reject됨
+3. 같은 목적지로 명령이 중복되어 물리적으로 갈 수 없음
+4. 작업대 footprint 때문에 통로가 막힘
+5. Local Macro route 중간에 static blocker가 있음
+```
+
+## 3. 정리한 구조
+
+Global Arbiter는 다음 순서로 정리하였다.
+
+```text
+AMR별 next_cell 후보 생성
+→ 후보 전체 수집
+→ same-cell 검사
+→ edge-swap 검사
+→ rack footprint 검사
+→ reservation table 검사
+→ 승인/거부 결정
+→ 거부된 AMR은 WAIT 또는 REROUTE 판단
+```
+
+## 4. 문서 보강 내용
+
+```text
+1. Global Arbiter의 목적 추가
+2. tick 단위 이동 승인 흐름 추가
+3. same-cell / edge-swap / footprint 충돌 차단 기준 추가
+4. Convoy Following과 Tail Release 설명 추가
+5. Priority Aging 설명 추가
+6. Cost-aware Reroute와의 연결 구조 추가
+```
+
+## 5. 최종 결과
+
+GitHub 문서에서 다중 AMR 주행 안정화 구조가 다음처럼 계층적으로 설명되도록 개선되었다.
+
+```text
+Bridge: 잘못된 명령 사전 차단
+A*: 개별 AMR 경로 후보 생성
+Reservation Table: 시간축 cell 예약
+Global Arbiter: tick 단위 전체 AMR 이동 승인
+Cost-aware Reroute: reject 발생 시 WAIT/REROUTE 판단
+```
+
+---
+
 # ISSUE 7. AMR이 막혔을 때 기다림과 우회를 판단하지 못하는 문제
 
 ## 1. 증상
@@ -867,7 +1240,8 @@ AMR이 막혔을 때 기존 구조는 대부분 기다리는 방식이었다.
 ```text
 A* 경로 계산
 → 첫 이동 cell 제안
-→ global arbiter가 reject
+→ Global Arbiter가 전체 AMR 이동 후보와 비교
+→ same-cell / edge-swap / footprint / reservation 충돌이면 reject
 → wait 증가
 → 다음 tick에서 다시 시도
 ```
@@ -1317,6 +1691,57 @@ RANDOM
 
 ---
 
+## 8.4 Global Arbiter 승인 레이어 정리
+
+### 목적
+
+여러 AMR이 동시에 움직일 때 각 AMR의 개별 경로계획 결과를 그대로 실행하지 않고, 전체 fleet 기준으로 다음 이동을 승인한다.
+
+### 정리한 기능
+
+```text
+1. tick 단위 next_cell 후보 수집
+2. same-cell 충돌 차단
+3. edge-swap 충돌 차단
+4. rack footprint 충돌 차단
+5. Reservation Table 기반 시간축 충돌 차단
+6. convoy following과 tail-release 허용 조건 구분
+7. reject 발생 시 wait 또는 cost-aware reroute 판단으로 연결
+```
+
+### 최종 효과
+
+```text
+다중 AMR이 동시에 주행할 때 개별 A*만으로 막기 어려운 순간 충돌을 중앙에서 차단
+```
+
+---
+
+## 8.5 Bridge Queue 및 Active Registry 정리
+
+### 목적
+
+ROS2 Action 명령과 IsaacSim controller 실행 상태를 command_id 기준으로 추적하고, 중복 명령을 controller에 전달하기 전에 차단한다.
+
+### 정리한 기능
+
+```text
+1. command_id 기반 command/status/result 매칭
+2. active_workstations 관리
+3. active_targets 관리
+4. active_amrs 관리
+5. cancel/timeout/result 이후 cleanup
+6. DUPLICATE_WORKSTATION / DUPLICATE_TARGET / DUPLICATE_AMR reject
+```
+
+### 최종 효과
+
+```text
+잘못된 외부 명령이 실제 AMR 주행 오류로 번지기 전에 Bridge 단계에서 차단
+```
+
+---
+
 # 9. 실행 및 검증 명령어
 
 ## 9.1 bridge 실행
@@ -1374,6 +1799,58 @@ ls -al ~/isaaclab_ws/isaac_aruco/amr/bridge_queue/status
 ls -al ~/isaaclab_ws/isaac_aruco/amr/bridge_queue/results
 ```
 
+
+## 9.7 Bridge active command 검증 관점
+
+중복 명령을 테스트할 때는 다음 순서로 확인한다.
+
+```bash
+# commands 생성 여부
+ls -al ~/isaaclab_ws/isaac_aruco/amr/bridge_queue/commands
+
+# status 갱신 여부
+ls -al ~/isaaclab_ws/isaac_aruco/amr/bridge_queue/status
+
+# result 반환 여부
+ls -al ~/isaaclab_ws/isaac_aruco/amr/bridge_queue/results
+
+# cancel 요청 여부
+ls -al ~/isaaclab_ws/isaac_aruco/amr/bridge_queue/cancel
+
+# 완료 처리 여부
+ls -al ~/isaaclab_ws/isaac_aruco/amr/bridge_queue/done
+```
+
+중복 명령 차단이 정상이라면 Bridge 로그에서 다음 유형을 확인할 수 있어야 한다.
+
+```text
+DUPLICATE_WORKSTATION
+DUPLICATE_TARGET
+DUPLICATE_AMR
+```
+
+## 9.8 Global Arbiter 및 Cost Decision 로그 검증 관점
+
+AMR이 멈췄을 때는 단순히 no_path만 볼 것이 아니라 Arbiter reject와 cost decision을 같이 확인한다.
+
+```text
+1. AMR 현재 cell
+2. AMR target cell
+3. 제안된 next_cell
+4. Global Arbiter reject reason
+5. wait_steps
+6. wait_cost
+7. detour_cost
+8. 최종 decision = WAIT 또는 REROUTE
+```
+
+기대 로그 예시는 다음과 같다.
+
+```text
+GLOBAL_ARBITER_REJECT | amr=AMR_03 reason=SAME_CELL blocked=(4,-5)
+COST_DECISION | AMR_03 decision=REROUTE wait_cost=12.4 detour_cost=8.7
+```
+
 ---
 
 # 10. 핵심 디버깅 요약표
@@ -1386,7 +1863,7 @@ ls -al ~/isaaclab_ws/isaac_aruco/amr/bridge_queue/results
 | Bridge       | 같은 workstation_id 중복 명령         | 작업대 active 상태 관리 부족                     | DUPLICATE_WORKSTATION 차단              | 완료    |
 | Bridge       | 같은 AMR 중복 명령                    | per-AMR action 중복 사용 가능                 | DUPLICATE_AMR 차단                      | 완료    |
 | Controller   | LOCAL_ENTRY 중간 route 막힘         | future route의 static blocker 미검사        | local macro route blocker 검사 반영       | 완료    |
-| Controller   | wait만 하고 우회 판단 부족               | wait_cost/detour_cost 비교 없음             | cost-aware global reroute 적용          | 완료    |
+| Controller   | wait만 하고 우회 판단 부족               | Global Arbiter reject 후 wait_cost/detour_cost 비교 없음 | cost-aware global reroute 적용          | 완료    |
 | QR           | QR MISS 또는 cell jump 가능성        | 이동 중 오인식, 인접 QR 인식                      | QR safety gate 적용                     | 완료    |
 | 좌표계          | target_location과 실제 stage 위치 혼동 | world/grid 변환 기준 불명확                    | 1.5m grid 기준 좌표 정리                    | 완료    |
 | 문서화          | 구현 내용이 흩어짐                      | 코드/로그/발표 자료가 분리됨                        | README/PPT/DEBUGGING.md 구조화           | 완료    |
@@ -1421,9 +1898,10 @@ ls -al ~/isaaclab_ws/isaac_aruco/amr/bridge_queue/results
 5. Reservation Table 기반 충돌 회피
 6. Local Macro Route 기반 SG 진입 안정화
 7. bridge admission guard
-8. cost-aware global reroute
-9. CycloneDDS Wi-Fi 통신 설정
-10. README/PPT/DEBUGGING 문서화
+8. Global Arbiter 기반 tick 단위 이동 승인 구조
+9. cost-aware global reroute
+10. CycloneDDS Wi-Fi 통신 설정
+11. README/PPT/DEBUGGING 문서화
 ```
 
 ---
@@ -1441,8 +1919,9 @@ ls -al ~/isaaclab_ws/isaac_aruco/amr/bridge_queue/results
 6. Time A* + Reservation Table 기반 다중 AMR 충돌 회피 적용
 7. SG 진입을 위한 Local Macro Route 구조 적용
 8. 중복 명령 문제를 bridge admission guard로 차단
-9. wait vs detour cost-aware global reroute 구조 적용
-10. CycloneDDS interface 문제 해결로 PC 간 ROS2 통신 구조 안정화
+9. Global Arbiter 기반으로 다중 AMR의 tick 단위 이동 승인 구조 정리
+10. wait vs detour cost-aware global reroute 구조 적용
+11. CycloneDDS interface 문제 해결로 PC 간 ROS2 통신 구조 안정화
 ```
 
 ---
@@ -1501,7 +1980,7 @@ ls -al ~/isaaclab_ws/isaac_aruco/amr/bridge_queue/results
 
 디버깅 과정에서 가장 중요한 판단은 문제를 계층별로 분리한 것이다. 상대 PC에서 action server가 안 보이는 문제는 controller 문제가 아니라 CycloneDDS interface 문제였고, AMR이 특정 위치에서 멈추는 문제는 단순 A* 문제가 아니라 중복 target command 문제였다. 또한 AMR이 막혔을 때 계속 기다리는 문제는 충돌 회피 실패가 아니라 wait와 detour를 비교하는 cost planner가 부족한 구조적 한계였다.
 
-이러한 문제를 해결하기 위해 bridge에는 admission guard를 추가하여 중복 workstation, 중복 target, 중복 AMR 명령을 사전에 차단했고, controller에는 cost-aware global reroute 구조를 추가하여 AMR이 막혔을 때 기다릴지 우회할지 판단할 수 있도록 개선하였다. 또한 Local Macro Route와 QR safety gate, CycloneDDS Wi-Fi 설정까지 정리하여 전체 시스템의 안정성을 높였다.
+이러한 문제를 해결하기 위해 bridge에는 admission guard를 추가하여 중복 workstation, 중복 target, 중복 AMR 명령을 사전에 차단했고, controller에는 Global Arbiter 기반 tick 단위 이동 승인 구조와 cost-aware global reroute 구조를 정리하여 AMR이 막혔을 때 충돌을 막으면서 기다릴지 우회할지 판단할 수 있도록 개선하였다. 또한 Local Macro Route와 QR safety gate, CycloneDDS Wi-Fi 설정까지 정리하여 전체 시스템의 안정성을 높였다.
 
 최종적으로 협동3 프로젝트는 IsaacSim 기반 AMR Fleet 물류 자동화 시뮬레이션으로 완성되었으며, 성웅은 팀장으로서 프로젝트 기획, 전체 시나리오 설계, 팀원 조율, GitHub 문서화, PPT 제작, 최종 발표를 담당했다. 기술적으로는 ROS2와 IsaacSim을 연결하는 핵심 구조와 다중 AMR 주행 안정성 개선을 주도하였다.
 
