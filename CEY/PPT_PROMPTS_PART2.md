@@ -274,16 +274,17 @@ Header strip:
 Layout: Vertical timeline (center line with left/right events).
 
 Timeline events (chronological):
-05/26 — Isaac Sim + SH5 환경 구축, VR 조작 인터페이스
-05/28 — HDF5 녹화 파이프라인 + 카메라 통합
-06/01 — 슬롯 1~4 총 400+ 에피소드 수집 완료
-06/03 — freeze_idle_arms + create_subset 전처리
-06/04 — augment_data 증강 파이프라인
-06/06 — ACT v2 학습 (Colab A100, 150 epoch)
-06/08 — 3대 로봇 ReplayController + ROS 2 브릿지
-06/10 — WARMUP 보간 + stay.hdf5 호밍 + frozen_set
-06/11 — HDF5-Guided Snapping 파지 안정화
-06/12 — yo-yo 수정 + WorkstationManager 완성
+06/04 — SH5 플랫폼 전환 결정, VR 텔레오퍼레이션 기획 시작
+06/05 — VR 영상 스트리밍 파이프라인 완성 (Isaac Sim → Vuer)
+06/06 — SH5 데이터 수집 환경 최적화, Magic Snapping 최초 도입
+06/07 — HDF5 로거 전면 개편 (robot_pose/box_pose/image 추가), train_bc.py
+06/08 — ACT 모델 구축 (train_act.py), augment_data v2 (Phase-Aware), replay_data.py
+06/09 — 관절 인덱스 전면 수정 (인터리브 배열), augment 완성, ACT 학습 실행 (Slot1/2/3)
+06/10 — evaluate_act 고도화, sh5_integrated.py 완성, HDF5 재생 엔진, DB 연동
+06/11 — sh5_bringup_ros2_3robot.py (3대 병렬), ROS 2 브릿지, WARMUP 보간, frozen_set
+06/11 — stay.hdf5 호밍, HDF5-Guided Snapping 파지 안정화
+06/12 — yo-yo 현상 수정 (_write_box_pose), WorkstationManager Spawn/Despawn 완성
+
 
 ---
 
