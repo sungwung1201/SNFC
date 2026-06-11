@@ -522,3 +522,28 @@ Bottom section (40% height, slightly lighter navy):
   * RACK prim 경로 매핑 완성 및 Despawn 검증
   * GPU PhysX 패치 후 GPU 모드 전환
   * 실제 로봇 Sim2Real 적용 검토
+
+---
+
+## Slide 26 — 종합 기술 성과 요약 (마지막 페이지)
+
+Create a clean slide with pure white background (#FFFFFF).
+
+At the top-left, place the following (no header strip):
+- Large bold title: "종합 기술 성과 요약"
+- Below title, small gray subtitle: "SH5 Isaac Sim 물류 자동화 파이프라인 도입에 따른 전후 정량적 성과 대비 명세"
+
+Below title area, place a full-width table with the following structure:
+
+Table header row (dark gray background #2D3748, white bold text, centered):
+| 핵심 평가 지표 | 개선 전 상태 (Legacies) | 개선 후 성과 (Achievements) |
+
+Table body rows (alternating white / very light gray #F8F9FA, left-aligned text):
+| **파지 딜레이 및 yo-yo 현상** | kinematic 박스에 velocity 설정 → PhysX 에러 1000개 누적, 시뮬레이터 강제 종료 | 0건 (write_root_pose_to_sim 전용 헬퍼 + kinematic=True 고정) |
+| **박스 부착 정확도** | 왼/오른손 수동 지정 오류 → 슬롯 2에서 반대 손 텔레포트 발생 | 100% (HDF5 box_trajectory 기반 링크 자동 선택) |
+| **재생 시작 텔레포트** | 현재 자세 → 첫 프레임 순간이동 (로봇 쓰러짐) | 제거 (WARMUP_FRAMES=30, 선형 보간 ~1초) |
+| **데이터 수집 품질** | 비동작 팔이 조작에 의해 흔들려 학습 방해 | 정제 완료 (freeze_idle_arms 전처리, frozen_set 791 episodes) |
+| **다중 로봇 운영** | 단일 로봇 순차 처리 | 3대 동시 병렬 (독립 상태머신 ReplayController × 3) |
+| **작업대 관리** | 수동 조작 필요 | 완전 자동화 (WorkstationManager, JSONL 파일큐 폴링) |
+| **관제탑 연동** | 없음 (독립 시뮬레이션) | ROS 2 브릿지 완비 (check_warehouse + report_inbound + pause_interlock) |
+
