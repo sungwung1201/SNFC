@@ -337,7 +337,7 @@ Create a clean slide with white background.
 
 Header strip:
 - Title: "데이터셋 구성 현황 (실측)"
-- Subtitle: "수집 → freeze 전처리 → 증강 | /datasets/train_data/vision_data"
+- Subtitle: "수집 → freeze 전처리 → 증강 | 경로: /datasets/train_data/vision_data"
 
 Layout: 2 columns.
 
@@ -369,10 +369,9 @@ Right column (table):
   | 4 (뒤 좌) | vision_slot4_2   | 120 | ~653 | ❌ |
   | **합계** | **8개** | **791** | **~893** | |
 
-- obs 구조: joint_positions(63D), box_pose(7D), rack_pose(7D), robot_pose(7D), images(Left/Right/TopView 160×120)
+- obs 구조: joint_positions(63D), box_pose(7D), rack_pose(7D), robot_pose(7D), images(Left/Right/TopView 160x120)
 
-Bottom note: "증강: augment_slot3_to_slot4.py (slot3→4 좌우반전) + augment_data.py (미러링+노이즈 σ=0.01rad)"
-
+Bottom note: "증강: augment_slot3_to_slot4.py(slot3→4 좌우반전) + augment_data.py(미러링+노이즈 σ=0.01rad)"
 
 ---
 
@@ -418,7 +417,7 @@ Layout: Script format, numbered points.
    "Isaac Sim 기반 SH5 쌍팔 로봇 3대가 물류 창고에서 동시에 Pick & Place를 수행하는 시스템입니다."
 
 2. (40초) 데이터 파이프라인
-   "VR 조작으로 400여 개 에피소드를 수집하고, 방해 팔 제거 전처리와 데이터 증강을 거쳐 Vision-ACT 모델을 학습했습니다."
+   "VR 조작으로 800여 개 에피소드를 수집하고, 방해 팔 제거 전처리와 데이터 증강을 거쳐 Vision-ACT 모델을 학습했습니다."
 
 3. (40초) 핵심 기술 — yo-yo 수정
    "가장 큰 기술적 도전은 yo-yo 현상이었습니다. kinematic 박스에 velocity를 설정하면 PhysX 에러가 1000개 누적되어 시뮬레이션이 강제 종료됩니다. write_root_pose_to_sim 전용 헬퍼를 만들어 완전히 해결했습니다."
