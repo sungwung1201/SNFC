@@ -527,23 +527,55 @@ Bottom section (40% height, slightly lighter navy):
 
 ## Slide 26 — 종합 기술 성과 요약 (마지막 페이지)
 
-Create a clean slide with pure white background (#FFFFFF).
+Create a clean slide with a pure white background (#FFFFFF).
 
-At the top-left, place the following (no header strip):
-- Large bold title: "종합 기술 성과 요약"
-- Below title, small gray subtitle: "SH5 Isaac Sim 물류 자동화 파이프라인 도입에 따른 전후 정량적 성과 대비 명세"
+At the top of the slide, do NOT use a header strip. Instead, place the title block directly on the white background, left-aligned:
+- Title (large, bold, black, with a thin black bottom border line below it): "종합 기술 성과 요약"
+- Subtitle (small, gray, below the border): "SH5 Isaac Sim 물류 자동화 파이프라인 도입에 따른 전후 정량적 성과 대비 명세"
 
-Below title area, place a full-width table with the following structure:
+Below the title block, place a full-width table that fills most of the slide area:
 
-Table header row (dark gray background #2D3748, white bold text, centered):
-| 핵심 평가 지표 | 개선 전 상태 (Legacies) | 개선 후 성과 (Achievements) |
+Table header row style: dark gray-blue background (#2D3748), white bold centered text.
+Table header columns:
+- Column 1 (25% width): "핵심 평가 지표"
+- Column 2 (37.5% width): "개선 전 상태 (Legacies)"
+- Column 3 (37.5% width): "개선 후 성과 (Achievements)"
 
-Table body rows (alternating white / very light gray #F8F9FA, left-aligned text):
-| **파지 딜레이 및 yo-yo 현상** | kinematic 박스에 velocity 설정 → PhysX 에러 1000개 누적, 시뮬레이터 강제 종료 | 0건 (write_root_pose_to_sim 전용 헬퍼 + kinematic=True 고정) |
-| **박스 부착 정확도** | 왼/오른손 수동 지정 오류 → 슬롯 2에서 반대 손 텔레포트 발생 | 100% (HDF5 box_trajectory 기반 링크 자동 선택) |
-| **재생 시작 텔레포트** | 현재 자세 → 첫 프레임 순간이동 (로봇 쓰러짐) | 제거 (WARMUP_FRAMES=30, 선형 보간 ~1초) |
-| **데이터 수집 품질** | 비동작 팔이 조작에 의해 흔들려 학습 방해 | 정제 완료 (freeze_idle_arms 전처리, frozen_set 791 episodes) |
-| **다중 로봇 운영** | 단일 로봇 순차 처리 | 3대 동시 병렬 (독립 상태머신 ReplayController × 3) |
-| **작업대 관리** | 수동 조작 필요 | 완전 자동화 (WorkstationManager, JSONL 파일큐 폴링) |
-| **관제탑 연동** | 없음 (독립 시뮬레이션) | ROS 2 브릿지 완비 (check_warehouse + report_inbound + pause_interlock) |
+Table body rows style: alternating white and very light gray (#F8F9FA) rows. Column 1 is bold center-aligned. Columns 2 and 3 are left-aligned regular text. Achievements column text is colored in blue (#2B6CB0) to visually distinguish improvements.
+
+Table body content:
+Row 1:
+- 핵심 평가 지표: 파지 딜레이 및 yo-yo 현상
+- 개선 전: kinematic 박스에 velocity 설정 → PhysX 에러 1000개 누적, 시뮬레이터 강제 종료
+- 개선 후: 0건 (write_root_pose_to_sim 전용 헬퍼 + kinematic=True 항시 고정)
+
+Row 2:
+- 핵심 평가 지표: 박스 부착 정확도
+- 개선 전: 왼/오른손 수동 지정 오류 → 슬롯 2에서 반대 손 텔레포트 발생
+- 개선 후: 100% 자동 선택 (HDF5 box_trajectory 기반 최근접 링크 자동 매핑)
+
+Row 3:
+- 핵심 평가 지표: 재생 시작 텔레포트
+- 개선 전: 현재 자세 → 첫 프레임 순간이동 (관절 과부하 및 로봇 쓰러짐)
+- 개선 후: 완전 제거 (WARMUP_FRAMES=30 선형 보간, 약 1초 자연스러운 전환)
+
+Row 4:
+- 핵심 평가 지표: 데이터 수집 품질
+- 개선 전: 비동작 팔이 키보드 조작에 의해 흔들려 반대팔 궤적 오염
+- 개선 후: 791 에피소드 정제 완료 (freeze_idle_arms 전처리 + frozen_set 선별)
+
+Row 5:
+- 핵심 평가 지표: 다중 로봇 동시 운영
+- 개선 전: 단일 로봇 순차 처리 (병렬 처리 불가)
+- 개선 후: 3대 동시 병렬 운영 (독립 상태머신 ReplayController × 3, sg2_in_01~03)
+
+Row 6:
+- 핵심 평가 지표: 작업대 관리
+- 개선 전: 수동 조작 필요 (AMR 이동 시 작업대 수동 제거)
+- 개선 후: 완전 자동화 (WorkstationManager, /tmp/sh5_ws_trigger.jsonl 폴링)
+
+Row 7:
+- 핵심 평가 지표: 관제탑 연동
+- 개선 전: 없음 (Isaac Sim 독립 실행)
+- 개선 후: ROS 2 브릿지 완비 (check_warehouse_status + report_inbound_progress + pause_interlock)
 
