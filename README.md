@@ -1,237 +1,152 @@
-# SNFC
+# SNFC - 협동3
 
 <p align="center">
-  <b>IsaacSim 기반 다중 AMR·SH5 로봇 물류창고 최적화 시뮬레이션</b><br>
-  ROS 2 Humble · NVIDIA Isaac Sim · AMR Fleet · SH5 Dual-arm Robot · PostgreSQL · Redis · FastAPI · Time A* · Global Arbiter · Cost-aware Reroute
+  <b>IsaacSim 기반 다중 AMR · SH5 · Control Tower 통합 물류 자동화 시뮬레이션</b><br>
+  ROS 2 Humble · NVIDIA Isaac Sim · AMR Fleet · SH5 Dual-arm Robot · PostgreSQL · Redis · FastAPI Dashboard
 </p>
 
 <p align="center">
   <img src="https://img.shields.io/badge/ROS2-Humble-22314E?style=for-the-badge&logo=ros&logoColor=white">
   <img src="https://img.shields.io/badge/Ubuntu-22.04-E95420?style=for-the-badge&logo=ubuntu&logoColor=white">
   <img src="https://img.shields.io/badge/Python-3.10-3776AB?style=for-the-badge&logo=python&logoColor=white">
-  <img src="https://img.shields.io/badge/Isaac%20Sim-AMR%20Fleet-76B900?style=for-the-badge&logo=nvidia&logoColor=white">
-  <img src="https://img.shields.io/badge/PostgreSQL-15-4169E1?style=for-the-badge&logo=postgresql&logoColor=white">
-  <img src="https://img.shields.io/badge/Redis-7.0-DC382D?style=for-the-badge&logo=redis&logoColor=white">
+  <img src="https://img.shields.io/badge/IsaacSim-AMR%20%2B%20SH5-76B900?style=for-the-badge&logo=nvidia&logoColor=white">
+  <img src="https://img.shields.io/badge/DB-PostgreSQL%20%2B%20Redis-336791?style=for-the-badge">
+  <img src="https://img.shields.io/badge/Control%20Tower-FastAPI%20Dashboard-009688?style=for-the-badge">
 </p>
 
 <p align="center">
   <a href="#0-프로젝트-한-줄-요약">요약</a> ·
-  <a href="#2-프로젝트를-진행한-이유">개발 동기</a> ·
+  <a href="#2-프로젝트-개발-동기">개발 동기</a> ·
   <a href="#3-주요-기능">주요 기능</a> ·
   <a href="#4-시스템-설계">시스템 설계</a> ·
-  <a href="#8-운영체제-및-사용-장비">실행 환경</a> ·
-  <a href="#10-실행-순서">실행 순서</a>
+  <a href="#7-팀원별-담당-영역">팀 역할</a> ·
+  <a href="#11-설치-및-실행-순서">실행 방법</a>
 </p>
 
 ---
 
 ## 0. 프로젝트 한 줄 요약
 
-**SNFC**는 NVIDIA IsaacSim 환경에서 **AMR 5대**, **SH5 쌍팔 로봇 3대**, **작업대 다수**, **Control Tower**, **ROS 2 Action Bridge**, **PostgreSQL·Redis 기반 WMS**, **FastAPI Dashboard**를 연결하여 물류창고의 입고·적재·작업대 이송·출고 흐름을 시뮬레이션하고, 자체 설계한 경로계획·관제 알고리즘으로 다중 로봇 물류 효율을 최적화하는 프로젝트입니다.
+**SNFC**는 IsaacSim 환경에서 **AMR 5대**, **SH5 쌍팔 로봇 3대**, **관제탑(Control Tower)**을 연결하여 입고·적재·작업대 이송·출고 포장 흐름을 통합한 **지능형 물류 자동화 시뮬레이션 프로젝트**입니다.
 
 ```text
-패키지 입고
-→ Control Tower 작업 생성
-→ SH5 로봇 적재 / QR 확인
-→ 작업대 슬롯 상태 보고
-→ AMR 작업대 이송 명령
-→ ROS2 Bridge → IsaacSim Controller
-→ Time A* / Reservation Table / Global Arbiter / Cost-aware Reroute
-→ 작업대 배치 / 복귀 / 상태 반환
-→ PostgreSQL·Redis·Dashboard 상태 동기화
+Control Tower
+→ PostgreSQL / Redis 기반 작업 스케줄링
+→ ROS 2 Action / Service 명령 발행
+→ AMR Fleet Bridge 및 IsaacSim Controller
+→ Global Arbiter 기반 다중 AMR 충돌 회피
+→ SH5 쌍팔 로봇 적재/포장 시뮬레이션
+→ 상태 반환, DB 갱신, 웹 대시보드 모니터링
 ```
 
 ---
 
 ## 1. 프로젝트 개요
 
-SNFC는 단순히 IsaacSim에서 로봇을 움직이는 데모가 아니라, **제조·물류 현장에서 발생할 수 있는 다중 로봇 병목 상황을 실제 운영 구조에 가깝게 분리해 구현한 통합 시뮬레이션**입니다.
+협동3 프로젝트는 단순히 IsaacSim 안에서 로봇을 움직이는 데모가 아니라, **공장 물류 자동화 시스템 전체의 제어 흐름**을 하나의 시뮬레이션으로 연결하는 것을 목표로 하였다.
 
-핵심 구성은 다음과 같습니다.
+SNFC는 다음 세 영역을 하나로 통합한다.
 
-| 계층 | 구성 요소 | 역할 |
+| 영역 | 핵심 역할 | 담당 |
 |---|---|---|
-| Control Tower | ROS 2 관제 노드, FastAPI, PostgreSQL, Redis | 물류 작업 생성, AMR 배정, 작업대 상태 관리, 대시보드 제공 |
-| AMR Fleet | AMR_01 ~ AMR_05 | 작업대 픽업, SG 구역 진입, stage/warehouse 이송, 복귀 |
-| SH5 Robot | sg2_in_01 ~ sg2_in_03 | 패키지 적재, QR 확인, 작업대 슬롯 채움, 입고 보고 |
-| ROS2 Bridge | Fleet Manager Bridge, SH5 Bridge | Control Tower와 IsaacSim 사이의 명령·상태 변환 |
-| IsaacSim Controller | AMR Controller, SH5 Replay Controller | 실제 stage 내 로봇·작업대·패키지 제어 |
-| Optimization Layer | Time A*, Reservation Table, Global Arbiter, Cost-aware Reroute | 다중 AMR 충돌 회피 및 병목 최소화 |
+| AMR Fleet / Bridge / Global Arbiter | 작업대 픽업·운반·배치, 다중 AMR 충돌 회피, ROS2-IsaacSim 브릿지 | 윤성웅(YSW) |
+| SH5 Dual-arm Robot / Imitation Pipeline | HDF5 시연 데이터 수집, ACT 학습, 3대 SH5 병렬 적재/포장 시연 | 최은예(CEY) |
+| Control Tower / DB / Dashboard | PostgreSQL·Redis 기반 WMS, ZSET 스케줄러, JIT 인터로킹, FastAPI 대시보드 | 윤재현(YJH) |
 
 ---
 
-## 2. 프로젝트를 진행한 이유
+## 2. 프로젝트 개발 동기
 
-일반적인 공장·물류 자동화 알고리즘은 고정 컨베이어, 정해진 라인, 단순 FIFO 큐, 정적 경로 기반 운영에 의존하는 경우가 많습니다. 이런 방식은 구조가 단순하고 안정적이지만, 다중 AMR이 같은 통로를 공유하거나 작업대가 동시에 이동해야 하는 상황에서는 병목, 대기, 중복 명령, 물리 충돌 문제가 쉽게 발생합니다.
+일반적인 공장 자동화 알고리즘은 고정된 라인, 고정된 룰, 단순 FIFO 또는 단순 최단거리 배정에 의존하는 경우가 많다. 이런 구조는 구현은 단순하지만, 다중 AMR과 로봇 팔이 같은 공간에서 동시에 움직이는 상황에서는 다음 문제가 발생한다.
 
-SNFC는 이런 한계를 실험적으로 개선하기 위해 시작했습니다. 목표는 **기존 공장 알고리즘을 그대로 모방하는 것**이 아니라, 직접 설계한 알고리즘으로 다음을 검증하는 것이었습니다.
-
-| 기존 방식의 한계 | SNFC에서의 개선 방향 |
+| 기존 방식의 한계 | 문제점 |
 |---|---|
-| 단순 FIFO 기반 작업 처리 | Redis ZSET 기반 우선순위 큐와 Control Tower 스케줄링 적용 |
-| 정적 경로 또는 단일 로봇 중심 경로계획 | Time A*와 Reservation Table로 시간축 점유까지 고려 |
-| 충돌 위험을 단순 정지로만 처리 | Global Arbiter가 매 tick 이동 후보를 승인·보류 |
-| 막히면 계속 기다리는 구조 | wait_cost와 detour_cost를 비교하는 Cost-aware Reroute 적용 |
-| 중복 목적지 명령을 실행 중 발견 | Bridge Admission Guard에서 사전 차단 |
-| 로봇 팔과 AMR의 작업영역 충돌 가능 | JIT pause_status 인터로킹으로 로봇 팔 일시정지/재개 제어 |
+| 단순 FIFO 작업 큐 | 긴급 작업, 회전, 작업대 교체 같은 우선순위를 반영하기 어려움 |
+| 단순 최단거리 AMR 배정 | 목적지 중복, 병목 구간 대기, 작업대 충돌 가능성 증가 |
+| 로봇 팔과 AMR 제어 분리 | AMR이 도킹/회전하는 순간 로봇 팔과 물리 충돌 가능 |
+| 시뮬레이션과 WMS 데이터 분리 | 작업 상태와 실제 로봇 상태가 어긋날 수 있음 |
+| 고정형 공정 로직 | 작업대 위치, 패키지 흐름, 병목 상황 변화에 유연하게 대응하기 어려움 |
 
-즉, 이 프로젝트의 핵심 의도는 **보통의 공장 운영 흐름보다 더 지능적으로 AMR과 로봇 팔을 조율하는 자체 최적화 알고리즘을 설계하고, IsaacSim 기반 환경에서 실제로 동작 가능한 구조로 검증하는 것**입니다.
+따라서 본 프로젝트는 **보통의 공장 알고리즘을 그대로 재현하는 것이 아니라, 직접 설계한 알고리즘으로 더 최적화된 물류 흐름을 만들 수 있는지 검증하는 것**을 목표로 하였다.
+
+SNFC에서 직접 설계·적용한 핵심 최적화는 다음과 같다.
+
+| 직접 설계한 최적화 | 설명 |
+|---|---|
+| Global Arbiter | 모든 AMR의 다음 이동 후보를 tick 단위로 중앙 승인하여 same-cell, edge-swap, head-on 충돌 차단 |
+| Cost-aware Reroute | AMR이 막혔을 때 단순 대기하지 않고 wait cost와 detour cost를 비교하여 WAIT/REROUTE 결정 |
+| Bridge Admission Guard | 같은 작업대, 같은 목적지, 같은 AMR에 중복 명령이 들어오는 것을 controller 진입 전에 차단 |
+| Redis ZSET Scheduler | 작업 우선순위를 score로 관리하여 회전, 교체, 입고, 출고 작업을 우선순위 기반으로 처리 |
+| JIT Interlocking | AMR이 작업대 하부에 진입하거나 회전할 때 SH5/SG2 팔을 pause_status로 일시정지 후 자동 재개 |
+| Look-ahead Buffer | 작업대가 다 차기 전에 다음 작업대를 미리 예비 구역에 준비하여 로봇 팔 유휴시간 감소 |
+| HDF5-Guided Snapping | 시연 데이터 기반으로 SH5의 좌/우 손 파지를 자동 선택하여 안정적인 pick & place 재생 |
 
 ---
 
 ## 3. 주요 기능
 
-### 3.1 Control Tower 기반 중앙 관제
-
-Control Tower는 물류창고의 중앙 WMS 역할을 수행합니다.
+### 3.1 AMR Fleet 물류 자동화
 
 | 기능 | 설명 |
 |---|---|
-| 작업 생성 및 스케줄링 | 입고/출고 작업을 DB와 Redis 큐 기준으로 관리 |
-| AMR 배정 | 사용 가능한 AMR 중 최적 후보를 선택 |
-| 작업대 상태 관리 | workstation slot, 위치, 예약 상태, 적재 상태 관리 |
-| JIT 인터로킹 | AMR이 작업대 하부에 진입하거나 회전할 때 로봇 팔 일시정지 |
-| 예외 복구 | AMR 오프라인, Action timeout, DB 충돌 발생 시 rollback 처리 |
-| 대시보드 | FastAPI 기반 상태 모니터링 제공 |
+| AMR 5대 운용 | `AMR_01` ~ `AMR_05`가 작업대를 픽업, 운반, 배치, 복귀 |
+| 작업대 운반 | `WS_01` ~ `WS_10` 또는 `RACK_01` ~ `RACK_10` 작업대를 SG/stage 위치로 이동 |
+| ROS2 Action 명령 | `/manage_workstation`, `/amr_01/manage_workstation` 등 Action으로 외부 명령 수신 |
+| Bridge Queue | commands/status/results/cancel/done JSON 파일로 ROS2와 IsaacSim controller 분리 |
+| QR 위치 인식 | AMR 하단 카메라가 바닥 QR을 읽고 grid cell 위치를 갱신 |
+| 8-way Time A* | 빈 AMR은 8방향, 작업대 운반 AMR은 더 보수적인 이동 정책 적용 |
+| Reservation Table | 시간축 cell 예약으로 다중 AMR 경로 충돌 방지 |
+| Local Macro Route | SG 진입/탈출 병목 구간에서 deterministic route 사용 |
+| Cost-aware Reroute | 대기와 우회를 비용으로 비교해 주행 효율 개선 |
 
-### 3.2 ROS 2 Action 기반 AMR 명령 구조
+### 3.2 Global Arbiter 기반 충돌 회피
 
-AMR 이동 명령은 ROS 2 Action으로 전달됩니다.
-
-```text
-Control Tower / 외부 PC
-→ ManageWorkstation Action Goal
-→ Fleet Manager Bridge
-→ bridge_queue/commands/*.json
-→ IsaacSim AMR Controller
-→ status/results JSON
-→ ROS 2 Action Feedback / Result
-```
-
-제공 Action Server:
+Global Arbiter는 각 AMR이 계산한 다음 이동 후보를 그대로 실행하지 않고, **모든 AMR의 이동 후보를 한 번 모아 중앙에서 승인/거절**한다.
 
 ```text
-/manage_workstation
-/amr_01/manage_workstation
-/amr_02/manage_workstation
-/amr_03/manage_workstation
-/amr_04/manage_workstation
-/amr_05/manage_workstation
+각 AMR 경로 후보 계산
+→ next_cell proposal 생성
+→ Global Arbiter가 전체 AMR proposal 수집
+→ same-cell / edge-swap / head-on / footprint 충돌 검사
+→ 승인된 AMR만 이동
+→ 거절된 AMR은 WAIT 또는 cost-aware reroute 판단
 ```
 
-### 3.3 Bridge Admission Guard
-
-Bridge v43는 Controller에 명령을 보내기 전에 불가능한 명령을 먼저 차단합니다.
-
-| 차단 조건 | 의미 |
+| 검사 항목 | 차단 대상 |
 |---|---|
-| `DUPLICATE_WORKSTATION` | 같은 작업대가 이미 active command에 포함됨 |
-| `DUPLICATE_TARGET` | 같은 target_location 또는 target_cell이 이미 예약됨 |
-| `DUPLICATE_AMR` | preferred AMR이 이미 작업 중임 |
+| same-cell conflict | 두 AMR이 같은 cell로 동시에 진입 |
+| edge-swap conflict | 두 AMR이 서로의 위치를 맞교환 |
+| head-on conflict | 좁은 통로에서 정면 충돌 |
+| rack footprint conflict | 작업대 운반 중 작업대 footprint가 다른 AMR/작업대와 겹침 |
+| static blocker | route 중간에 정적 작업대 또는 장애물이 존재 |
 
-이 구조를 통해 **서로 다른 작업대가 같은 목적지 cell에 배치되려는 문제**를 경로계획 단계까지 보내지 않고 bridge에서 즉시 reject할 수 있습니다.
-
-### 3.4 Time A* 경로계획
-
-일반 A*가 공간 좌표만 고려한다면, SNFC의 AMR Controller는 **시간축을 포함한 Time A*** 구조를 사용합니다.
-
-```text
-현재 cell
-→ 목표 cell
-→ 시간별 future reservation 확인
-→ 충돌 없는 경로 후보 생성
-```
-
-적용 기준:
-
-| AMR 상태 | 이동 정책 |
-|---|---|
-| 빈 AMR | 8방향 이동 허용 |
-| 작업대 운반 AMR | 4방향 중심 이동, 대각 이동 제한 |
-| SG 진입부 | Local Macro Route 우선 적용 |
-
-### 3.5 Reservation Table
-
-Reservation Table은 AMR이 미래에 점유할 cell을 시간 단위로 예약합니다.
-
-```text
-AMR_01: t+1=(1,2), t+2=(2,2), t+3=(3,2)
-AMR_02: t+1=(1,3), t+2=(2,3), t+3=(3,3)
-```
-
-다른 AMR은 같은 시간에 같은 cell을 예약할 수 없으며, edge swap 형태의 정면 충돌도 검사합니다.
-
-### 3.6 Global Arbiter
-
-Global Arbiter는 각 AMR이 계산한 다음 이동 후보를 바로 실행하지 않고, 한 tick 단위로 전체 AMR 이동 후보를 다시 검토하는 계층입니다.
-
-검사 항목:
-
-```text
-1. 같은 tick에서 동일 cell 진입 여부
-2. edge swap 충돌 여부
-3. 작업대 footprint 충돌 여부
-4. static workstation blocker 여부
-5. carrying AMR 우선순위
-6. return-home AMR 양보 여부
-```
-
-### 3.7 Cost-aware Global Reroute
-
-기존 구조는 AMR이 막히면 대부분 기다리는 방식이었습니다. 개선 후에는 Global Arbiter가 첫 이동을 reject했을 때 다음 판단을 수행합니다.
-
-```text
-1. rejected first cell을 temporary blocked cell로 지정
-2. 해당 cell을 피하는 detour A* 재계산
-3. wait_cost 계산
-4. detour_cost 계산
-5. wait_cost <= detour_cost → WAIT
-6. detour_cost < wait_cost → REROUTE
-```
-
-작업대를 들고 있는 AMR은 footprint가 크고 회전 위험이 있으므로, 빈 AMR보다 우회 허용 거리를 더 보수적으로 설정합니다.
-
-### 3.8 Local Macro Route
-
-SG 진입부는 일반 A*만으로 안정적으로 처리하기 어려운 좁은 병목 구간입니다. 따라서 SNFC는 SG 진입/탈출 구간에 deterministic local route를 적용합니다.
-
-```text
-LOCAL_ENTRY
-→ 후보 route 생성
-→ route 전체 QR valid 확인
-→ future route의 static blocker 검사
-→ 가능한 route 선택
-→ 작업대 배치
-→ LOCAL_EXIT
-```
-
-### 3.9 QR 기반 위치 보정
-
-AMR 하단 카메라가 바닥 QR을 읽어 grid cell과 world 좌표를 동기화합니다.
-
-보정 안정화 조건:
-
-```text
-- 이동 중 QR cell 갱신 제한
-- LIFTING / PLACING / ROTATING 중 갱신 차단
-- 갑작스러운 cell jump reject
-- world 위치와 QR 위치 오차 검사
-- 같은 QR을 안정적으로 읽었을 때만 accept
-```
-
-### 3.10 SH5 쌍팔 로봇 물류 자동화
-
-SH5 파트는 3대의 쌍팔 로봇이 각 라인에서 패키지를 적재하는 구조입니다.
+### 3.3 SH5 쌍팔 로봇 물류 자동화
 
 | 기능 | 설명 |
 |---|---|
-| VR 조작 데이터 수집 | HDF5 episode 생성 |
-| 데이터 전처리 | idle arm freeze, subset 추출, 실패 episode 필터링 |
-| 데이터 증강 | 좌우 미러링, 관절 노이즈, slot 변환 증강 |
-| ACT 학습 | Vision-ACT 기반 imitation learning |
-| 3대 병렬 replay | `sg2_in_01`, `sg2_in_02`, `sg2_in_03` 독립 동작 |
-| QR 확인 | package QR을 DB와 비교하여 중복 입고 판단 |
-| 입고 보고 | `report_inbound_progress` 서비스로 Control Tower에 슬롯 상태 보고 |
+| Isaac Sim SH5 환경 | `finalfac.usd` 기반 SH5 쌍팔 로봇 및 작업장 구성 |
+| VR 조작 데이터 수집 | VR 컨트롤러로 SH5 양팔을 원격 조작하고 HDF5 episode 저장 |
+| HDF5 데이터 구조화 | joint, box trajectory, RGB camera view, slot 정보를 episode 단위로 저장 |
+| 데이터 전처리 | `freeze_idle_arms.py`, `create_subset.py`, `filter_dataset.py`로 학습 품질 개선 |
+| 데이터 증강 | 좌우 미러링, 관절 노이즈, slot3→slot4 변환 증강 |
+| ACT 모방학습 | Vision-ACT 계열 모델을 Colab A100 환경에서 학습 |
+| 3대 로봇 병렬 시연 | `sh5_bringup_ros2_3robot.py`로 3개 라인 독립 pick & place 수행 |
+| HDF5-Guided Snapping | box trajectory 기반으로 좌/우 파지 링크 자동 선택 |
+| Spawn/Despawn | AMR이 작업대를 가져가거나 배치할 때 RACK prim을 실시간 제거/복원 |
+
+### 3.4 Control Tower / WMS / Dashboard
+
+| 기능 | 설명 |
+|---|---|
+| PostgreSQL WMS DB | 패키지, 작업대, AMR, 창고 위치, 이력 데이터 영속 저장 |
+| Redis 실시간 캐시 | AMR 상태, 작업 큐, 실시간 위치, 작업 플래그 저장 |
+| Redis ZSET Scheduler | 우선순위 score 기반 작업 분배 |
+| FastAPI Dashboard | 웹소켓 기반 실시간 상태 브로드캐스트 및 모니터링 |
+| JIT Interlocking | AMR 도킹·회전 시 SH5/SG2 팔을 일시정지하여 물리 충돌 방지 |
+| Look-ahead Buffer | 작업대가 모두 차기 전에 다음 작업대를 미리 준비 |
+| DB Rollback | AMR action 실패/timeout 시 예약 상태와 작업 상태 복구 |
+| OpenUSD Instancing | 143개 QR mesh 렌더링 병목을 instanceable 구조로 최적화 |
+| CSS Absolute DOM | 대시보드 DOM layout/paint 부하를 줄여 CPU 사용률 감소 |
 
 ---
 
@@ -240,94 +155,112 @@ SH5 파트는 3대의 쌍팔 로봇이 각 라인에서 패키지를 적재하�
 ### 4.1 전체 시스템 아키텍처
 
 ```mermaid
-graph LR
-    User[외부 PC / 운영자] --> CT[Control Tower]
-    CT --> PG[(PostgreSQL 15\nWMS DB)]
-    CT --> RD[(Redis 7\nCache / ZSET Queue)]
-    CT --> DASH[FastAPI Dashboard]
+flowchart LR
+    subgraph DataPlane[Data Plane]
+        PG[(PostgreSQL 15\nWMS DB)]
+        RD[(Redis 7.0\nCache + ZSET Queue)]
+    end
 
-    CT -->|ManageWorkstation Action| FMB[Fleet Manager Bridge]
-    FMB -->|Command JSON| BQ[bridge_queue]
-    BQ --> AMRC[IsaacSim AMR Controller]
-    AMRC --> AMR[AMR_01~AMR_05]
-    AMRC --> WS[Workstation / Rack]
-    AMRC -->|Status / Result JSON| BQ
-    BQ --> FMB
-    FMB -->|Action Feedback / Result| CT
+    subgraph ControlTower[Control Tower / Backend]
+        CT[control_tower_node\n중앙 스케줄러]
+        DASH[dashboard_server.py\nFastAPI Dashboard]
+        SYNC[sim_sync_node\n분산 시뮬레이션 동기화]
+    end
 
-    CT -->|/sim/sg2_spawn_trigger| SH5B[SH5 ROS2 Bridge]
-    SH5B -->|/tmp JSONL Queue| SH5[SH5 IsaacSim Replay Controller]
-    SH5 --> ROBOT[sg2_in_01~03 SH5 Robots]
-    SH5 -->|QR / Report Request| SH5B
-    SH5B -->|Check / Report Service| CT
+    subgraph AMRLayer[AMR Fleet Layer]
+        ROSBR[ROS2 Fleet Manager Bridge]
+        QUEUE[bridge_queue\ncommands/status/results]
+        CTRL[IsaacSim AMR Controller]
+        ARB[Global Arbiter\nCost-aware Reroute]
+        AMR[AMR_01 ~ AMR_05]
+    end
+
+    subgraph SH5Layer[SH5 Robot Layer]
+        SH5BR[ros2_sh5_bridge.py]
+        SH5[SH5 3-Robot Bringup]
+        SNAP[HDF5-Guided Snapping]
+    end
+
+    CT <--> PG
+    CT <--> RD
+    DASH <--> PG
+    DASH <--> RD
+    CT -->|ManageWorkstation Action| ROSBR
+    ROSBR --> QUEUE
+    QUEUE --> CTRL
+    CTRL --> ARB
+    ARB --> AMR
+    CTRL -->|status/result JSON| QUEUE
+    QUEUE --> ROSBR
+    ROSBR -->|Action feedback/result| CT
+    CT -->|pause_status / workstation trigger| SH5BR
+    SH5BR --> SH5
+    SH5 --> SNAP
+    SH5 -->|report_inbound_progress| CT
+    SYNC --> SH5BR
 ```
 
-### 4.2 물류 처리 플로우
+### 4.2 입고·적재·작업대 이송 플로우
 
 ```mermaid
 flowchart TD
-    A[패키지 입고] --> B[Control Tower 작업 생성]
-    B --> C[Redis ZSET 우선순위 큐 등록]
-    C --> D[SH5 라인 Spawn Trigger]
-    D --> E[SH5 Robot 패키지 적재]
-    E --> F{작업대 슬롯 상태}
-    F -->|4칸 적재| G[JIT 180도 회전 / pause_status]
-    F -->|8칸 적재| H[AMR 작업대 이송 요청]
-    H --> I[ROS2 ManageWorkstation Action]
-    I --> J[Bridge Admission Guard]
-    J -->|Reject| R[중복 명령 차단 및 Result 반환]
-    J -->|Accept| K[Command JSON 생성]
-    K --> L[AMR Controller command scan]
-    L --> M[Time A* + Reservation Table]
-    M --> N[Global Arbiter 승인/보류]
-    N -->|승인| O[AMR 이동 / 작업대 운반 / 배치]
-    N -->|보류| P[Cost-aware WAIT/REROUTE 판단]
-    P --> M
-    O --> Q[status/result JSON 기록]
-    Q --> CT
+    Start([패키지 입고]) --> Scan[QR/패키지 정보 스캔]
+    Scan --> DB{PostgreSQL에서 고객/배송일 조회}
+    DB -->|오늘 배송| In1[입고 라인 1]
+    DB -->|내일/모레 배송| In23[입고 라인 2/3]
+    In1 --> SH5Load[SH5가 작업대 슬롯에 적재]
+    In23 --> SH5Load
+    SH5Load --> Report[report_inbound_progress]
+    Report --> Count{4슬롯 또는 8슬롯 조건 도달?}
+    Count -->|No| SH5Load
+    Count -->|Yes| Pause[pause_status=True\n로봇 팔 일시정지]
+    Pause --> AMRCall[Control Tower가 AMR 작업대 이송 명령]
+    AMRCall --> Bridge[ROS2 Bridge command JSON 생성]
+    Bridge --> AMRMove[AMR이 작업대 픽업·운반·배치]
+    AMRMove --> Result[Action Result 반환]
+    Result --> Resume[pause_status=False\n로봇 팔 작업 재개]
 ```
 
-### 4.3 AMR Controller 내부 구조
+### 4.3 출고·포장·Look-ahead 플로우
 
 ```mermaid
 flowchart TD
-    A[Command JSON Scan] --> B[Command Validation]
-    B --> C[Workstation / Target Mapping]
-    C --> D[AMR Assignment]
-    D --> E[Phase State Machine]
-    E --> F[Time A* Path Planning]
-    F --> G[Reservation Table]
-    G --> H[Global Arbiter]
-    H -->|Approve| I[Move AMR]
-    H -->|Reject| J[Cost-aware Decision]
-    J -->|WAIT| K[Hold Current Cell]
-    J -->|REROUTE| L[Detour A*]
-    L --> G
-    I --> M[QR Localization]
-    M --> N[Pickup / Placing / Return]
-    N --> O[Result JSON]
+    Start([출고 스케줄러 시작]) --> Query[금일 배송 패키지 조회]
+    Query --> FetchA[A구역 작업대 이송]
+    FetchA --> Packing[SH5/SG2 Out 포장 작업]
+    Packing --> Update[DB 상태 갱신]
+    Update --> Look{7슬롯 완료?}
+    Look -->|Yes| PreFetch[Look-ahead B구역 작업대 사전 이송]
+    Look -->|No| Packing
+    PreFetch --> Full{8슬롯 완료?}
+    Full -->|Yes| Swap[JIT 작업대 교체]
+    Swap --> EOD{잔여 패키지 없음?}
+    EOD -->|Yes| Close[영업일 마감 및 이월 승격]
+    EOD -->|No| Packing
 ```
 
 ### 4.4 Bridge Queue 구조
 
 ```text
 bridge_queue/
-├── commands/   # Bridge가 생성한 명령 JSON
-├── status/     # Controller가 갱신하는 진행 상태
-├── results/    # Controller가 작성하는 최종 결과
+├── commands/   # Bridge가 생성한 command JSON
+├── status/     # Controller가 기록한 진행 상태
+├── results/    # Controller가 기록한 최종 결과
 ├── cancel/     # Action cancel 요청
-└── done/       # 처리 완료된 command 이동 또는 marker
+└── done/       # 처리 완료된 command 보관
 ```
 
-### 4.5 SH5 파일 큐 구조
+예시 command JSON:
 
-```text
-/tmp/sh5_queue.jsonl       # Bridge → IsaacSim: 패키지 투입 트리거
-/tmp/sh5_qr_req.jsonl      # IsaacSim → Bridge: QR DB 확인 요청
-/tmp/sh5_qr_result.jsonl   # Bridge → IsaacSim: DB 중복 체크 결과
-/tmp/sh5_report_req.jsonl  # IsaacSim → Bridge: 입고 완료 보고
-/tmp/sh5_pause.json        # Bridge → IsaacSim: pause_status 일시정지 상태
-/tmp/sh5_ws_trigger.jsonl  # Bridge → IsaacSim: 작업대 Spawn/Despawn
+```json
+{
+  "command_id": "CMD_f9bb42e729e8",
+  "workstation_id": "WS07",
+  "target_location": "sg2_in_01_B",
+  "preferred_amr_name": "AMR_05",
+  "require_preferred_amr": true,
+  "created_at": 1781167628.6863856
+}
 ```
 
 ---
@@ -336,25 +269,26 @@ bridge_queue/
 
 ```text
 SNFC/
-├── README.md
 ├── CEY/
 │   ├── README.md
 │   ├── DEBUGGING.md
 │   ├── assets/
 │   │   ├── box_assets/
 │   │   └── scene/
+│   │       ├── finalfac.usd
+│   │       └── RACK.usd
 │   └── scripts/
 │       ├── sh5_bringup_ros2_3robot.py
 │       ├── ros2_sh5_bridge.py
-│       ├── coupang_sh5_bringup_v.py
-│       ├── hdf5_replay_player.py
 │       ├── train_act_v2.py
-│       ├── evaluate_test_vision.py
-│       ├── freeze_idle_arms.py
-│       ├── create_subset.py
+│       ├── hdf5_replay_player.py
 │       ├── augment_data.py
 │       ├── augment_slot3_to_slot4.py
-│       └── filter_dataset.py
+│       ├── freeze_idle_arms.py
+│       ├── freeze_right_arm.py
+│       ├── filter_dataset.py
+│       └── send_packages.sh
+│
 ├── YJH/
 │   ├── README.md
 │   ├── DEBUGGING.md
@@ -370,208 +304,219 @@ SNFC/
 │       ├── dashboard_server.py
 │       ├── reset_db.py
 │       └── cyclonedds_wifi_config.xml
-└── YSW/
-    ├── README.md
-    ├── DEBUGGING.md
-    ├── system_design.md
-    ├── feature_operation.md
-    ├── equipment_list.md
-    ├── requirements.md
-    ├── execution_guide.md
-    ├── troubleshooting.md
-    ├── AMR.usd
-    └── Final_Factory.usd
+│
+├── YSW/
+│   ├── README.md
+│   ├── DEBUGGING.md
+│   ├── AMR.usd
+│   ├── Final_Factory.usd
+│   ├── system_design.md
+│   ├── feature_operation.md
+│   ├── execution_guide.md
+│   ├── equipment_list.md
+│   ├── requirements.md
+│   └── troubleshooting.md
+│
+├── README.md
+└── requirements.txt
 ```
 
 ---
 
 ## 6. 주요 파일 설명
 
-| 파일 | 담당 파트 | 설명 |
+| 파일 | 담당 | 설명 |
 |---|---|---|
-| `YSW/README.md` | AMR Fleet / 팀장 | 성웅 담당 기여 정리, AMR 경로계획, bridge, controller 개선 내용 |
-| `YSW/DEBUGGING.md` | AMR Fleet / 디버깅 | 중복 target, Global Arbiter, Cost-aware Reroute, QR, CycloneDDS 문제 해결 기록 |
-| `YSW/system_design.md` | AMR 시스템 설계 | Bridge Queue, Controller, Global Arbiter, Cost-aware 구조 설명 |
-| `YSW/feature_operation.md` | 기능 설명 | Time A*, Reservation Table, Admission Guard 등 기능별 실행 흐름 |
-| `YSW/execution_guide.md` | 실행 가이드 | AMR Controller와 Bridge 실행 순서 |
-| `YSW/requirements.md` | 의존성 | ROS2, IsaacSim, Python, 환경변수 정리 |
-| `YJH/start_control_tower_only.sh` | Control Tower | PostgreSQL·Redis·FastAPI·관제 노드 실행 스크립트 |
-| `YJH/docker/docker-compose.yml` | DB 인프라 | PostgreSQL, Redis, Adminer, Redis Commander 실행 |
-| `YJH/scratch/dashboard_server.py` | Dashboard | FastAPI 기반 모니터링 서버 |
-| `YJH/docs/CONTROL_TOWER_ARCHITECTURE.md` | 관제 설계 | Control Tower 노드 토폴로지와 물류 파이프라인 |
-| `YJH/docs/HANDOFF_INTEGRATION_GUIDE.md` | 통합 가이드 | ROS2 interface, service/action/message 통합 방법 |
-| `CEY/scripts/sh5_bringup_ros2_3robot.py` | SH5 시뮬레이션 | 3대 SH5 쌍팔 로봇 병렬 pick & place 시연 메인 코드 |
-| `CEY/scripts/ros2_sh5_bridge.py` | SH5 Bridge | Control Tower와 SH5 IsaacSim 사이 ROS2↔파일큐 브릿지 |
-| `CEY/scripts/train_act_v2.py` | 학습 | ACT v2 학습 코드 |
-| `CEY/scripts/hdf5_replay_player.py` | 데이터 재생 | HDF5 episode loader |
-| `CEY/scripts/freeze_idle_arms.py` | 전처리 | 비동작 팔 고정 데이터 전처리 |
-| `CEY/assets/scene/finalfac.usd` | IsaacSim Asset | 물류 창고 stage |
-| `CEY/assets/scene/RACK.usd` | IsaacSim Asset | 작업대 모델 |
+| `YSW/README.md` | 윤성웅 | AMR Fleet, Bridge, Global Arbiter, cost-aware reroute, 프로젝트 총괄 기여 정리 |
+| `YSW/DEBUGGING.md` | 윤성웅 | ROS2 bridge, CycloneDDS, 중복 명령, QR, target mapping, Global Arbiter 디버깅 기록 |
+| `CEY/scripts/sh5_bringup_ros2_3robot.py` | 최은예 | 3대 SH5 쌍팔 로봇 병렬 pick & place 메인 시연 스크립트 |
+| `CEY/scripts/ros2_sh5_bridge.py` | 최은예 | 관제탑과 IsaacSim SH5 사이 ROS2↔파일큐 브릿지 |
+| `CEY/scripts/train_act_v2.py` | 최은예 | ACT 기반 모방학습 모델 학습 스크립트 |
+| `CEY/DEBUGGING.md` | 최은예 | HDF5 데이터 수집, 파지 안정화, yo-yo 물리 버그, Spawn/Despawn 개발 일지 |
+| `YJH/start_control_tower_only.sh` | 윤재현 | PostgreSQL/Redis, FastAPI Dashboard, Control Tower 실행 스크립트 |
+| `YJH/scratch/dashboard_server.py` | 윤재현 | FastAPI 기반 실시간 대시보드 서버 |
+| `YJH/docker/docker-compose.yml` | 윤재현 | PostgreSQL, Redis, Adminer, Redis Commander 인프라 구성 |
+| `YJH/docs/CONTROL_TOWER_ARCHITECTURE.md` | 윤재현 | 관제탑 노드 토폴로지, 파이프라인, JIT 인터로킹 구조 문서 |
+| `YJH/docs/HANDOFF_INTEGRATION_GUIDE.md` | 윤재현 | ROS2 인터페이스, 노드 병합, DB 연동 가이드 |
 
 ---
 
-## 7. ROS 2 인터페이스
+## 7. 팀원별 담당 영역
 
-### 7.1 Action
+| 이름 | 폴더 | 담당 영역 | 핵심 기여 |
+|---|---|---|---|
+| 윤성웅 | `YSW` | 팀장 / AMR Fleet / Bridge / Global Arbiter / 문서화 | 프로젝트 기획, AMR 5대 작업대 운반 시나리오, ROS2 Action Bridge, admission guard, QR 위치 인식, Time A*, Reservation Table, cost-aware reroute, PPT 및 GitHub 문서화 |
+| 최은예 | `CEY` | SH5 IsaacSim / 모방학습 / 3대 로봇 시연 | VR 조작 기반 HDF5 데이터 수집, 데이터 전처리·증강, ACT 학습, 3대 SH5 병렬 replay, HDF5-guided snapping, yo-yo 물리 버그 해결, WorkstationManager Spawn/Despawn |
+| 윤재현 | `YJH` | Control Tower / Backend / DB / Dashboard | PostgreSQL·Redis 하이브리드 DB, Redis ZSET 스케줄러, JIT pause_status 인터로킹, Look-ahead buffer, FastAPI Dashboard, OpenUSD 인스턴싱, DOM 최적화, DB rollback |
 
-| Action | 용도 |
+<details open>
+<summary><b>윤성웅(YSW) 상세 기여</b></summary>
+
+### 담당 요약
+
+윤성웅은 협동3 프로젝트의 팀장으로서 프로젝트 주제 선정, 실제 창고 자동화 시나리오 설계, 팀원별 구현 방향 조율, GitHub README 및 발표 자료 구성을 담당하였다. 기술적으로는 AMR Fleet와 ROS2-IsaacSim 연결부를 중심으로 구현 구조를 정리하고, 다중 AMR 주행 안정성을 개선하였다.
+
+### 주요 구현 및 개선
+
+| 구분 | 내용 |
 |---|---|
-| `ManageWorkstation.action` | 작업대 이송, 배치, 회전, 회수 명령 |
-| `MovePackage.action` | 단일 패키지 긴급 이송 명령 |
-| `StartPackaging.action` | 출고 포장 로봇 작업 시작 명령 |
+| AMR Fleet 시나리오 | AMR 5대가 작업대를 픽업·운반·배치하고 복귀하는 물류 흐름 설계 |
+| ROS2 Bridge | `/manage_workstation`, `/amr_01/manage_workstation` ~ `/amr_05/manage_workstation` Action 구조 정리 |
+| Bridge Queue | command/status/result JSON 기반으로 ROS2와 IsaacSim controller 분리 |
+| Admission Guard | 중복 workstation, 중복 target, 중복 AMR 명령 사전 reject |
+| Global Arbiter | tick 단위 중앙 이동 승인 구조, same-cell/edge-swap/head-on 충돌 차단 |
+| Cost-aware Reroute | wait cost와 detour cost 비교로 WAIT/REROUTE 판단 |
+| QR 위치 인식 | QR safety gate로 이동 중 cell jump와 오인식 방지 |
+| 네트워크 디버깅 | CycloneDDS interface가 thunderbolt0으로 고정된 문제를 Wi-Fi 기준으로 수정 |
+| 문서화 | README, DEBUGGING, PPT, 발표 대본 및 프로젝트 흐름 정리 |
 
-### 7.2 Service
+### 핵심 성과
 
-| Service | 용도 |
+- 단순 경로계획 문제가 아니라 **명령 충돌 문제**를 분리하여 Bridge 단계에서 차단.
+- Global Arbiter와 cost-aware reroute를 결합해 다중 AMR의 대기/우회 판단 구조를 문서화.
+- ROS2 Action 명령과 IsaacSim controller를 loose coupling 구조로 연결.
+
+</details>
+
+<details open>
+<summary><b>최은예(CEY) 상세 기여</b></summary>
+
+### 담당 요약
+
+최은예는 SH5 IsaacSim 물류 자동화 파트를 담당하였다. VR 조작 기반 시연 데이터 수집부터 HDF5 전처리, ACT 모방학습, 3대 SH5 병렬 시연, 파지 안정화 및 작업대 Spawn/Despawn까지 SH5 로봇 파이프라인을 구축하였다.
+
+### 주요 구현 및 개선
+
+| 구분 | 내용 |
 |---|---|
-| `CheckWarehouseStatus.srv` | QR/패키지 기준 중복 입고 여부 확인 |
-| `ReportInboundProgress.srv` | SH5 적재 진행률 및 슬롯 상태 보고 |
-| `TransitPackage.srv` | 분산 시뮬레이션 간 패키지 전달 |
-| `GetDailyPackageList.srv` | 금일 처리 대상 패키지 목록 조회 |
+| IsaacSim 환경 | `finalfac.usd` 기반 SH5 및 물류 작업장 구성 |
+| 데이터 수집 | VR controller 기반 SH5 양팔 원격 조작, HDF5 episode 저장 |
+| 데이터 구조화 | Left/Right/TopView RGB, joint state, box trajectory, slot 정보 저장 |
+| 전처리 | 비동작 팔 고정, 실패 episode 필터링, subset 추출 |
+| 증강 | 좌우 미러링, 관절 노이즈, slot3→slot4 변환 |
+| 학습 | Google Colab A100에서 Vision-ACT 모델 150 epoch 학습 |
+| 3대 병렬 시연 | `sh5_bringup_ros2_3robot.py`로 3개 라인 독립 상태머신 운영 |
+| 파지 안정화 | HDF5-Guided Snapping으로 box trajectory 기반 파지 링크 자동 선택 |
+| 물리 버그 수정 | kinematic box velocity 문제로 발생한 yo-yo 현상 해결 |
+| 작업대 연동 | WorkstationManager로 RACK prim 실시간 Spawn/Despawn 구현 |
 
-### 7.3 Topic / Message
+### 핵심 성과
 
-| Topic / Message | 용도 |
+- 400개 이상의 HDF5 episode를 기반으로 SH5 시연 데이터 파이프라인 구축.
+- 파지 링크 자동 선택과 velocity 없는 pose write로 yo-yo 현상 없는 안정적 pick & place 재생.
+- AMR이 작업대를 이동할 때 SH5 시뮬레이션 화면에서도 작업대가 실시간 제거/복원되는 구조 구현.
+
+</details>
+
+<details open>
+<summary><b>윤재현(YJH) 상세 기여</b></summary>
+
+### 담당 요약
+
+윤재현은 관제탑(Control Tower), 백엔드, 데이터베이스, 실시간 대시보드, 시스템 최적화를 담당하였다. PostgreSQL과 Redis를 분리한 하이브리드 데이터 구조를 만들고, Redis ZSET 기반 우선순위 스케줄링, JIT 인터로킹, Look-ahead buffer를 통해 전체 물류 흐름을 제어하였다.
+
+### 주요 구현 및 개선
+
+| 구분 | 내용 |
 |---|---|
-| `/sim/sg2_spawn_trigger` | SH5 라인에 패키지 Spawn Trigger 전달 |
-| `/sim/sg2_workstation_trigger` | 작업대 Spawn/Despawn Trigger 전달 |
-| `/{robot_id}/pause_status` | 로봇 팔 일시정지/재개 인터로킹 |
-| `WorkstationSimTrigger.msg` | IsaacSim 작업대 생성/삭제 연동 메시지 |
+| Control Tower | ROS2 기반 중앙 스케줄러 및 WMS Brain 설계 |
+| PostgreSQL | 패키지, 작업대, AMR, warehouse location, 작업 이력 영속 저장 |
+| Redis | AMR 실시간 상태, 작업 큐, system flag, ZSET priority queue 관리 |
+| ZSET Scheduler | score 기반으로 회전/작업대 공급/예비 이송/빈 작업대 회수 우선순위 처리 |
+| JIT Interlocking | AMR 도킹·회전 시 `/robot_id/pause_status`로 SH5/SG2 일시정지 |
+| Look-ahead Buffer | 작업대가 가득 차기 전 다음 작업대 사전 이송으로 유휴시간 최소화 |
+| FastAPI Dashboard | 웹소켓 기반 실시간 관제 화면 구현 |
+| DB Rollback | action 실패/timeout 시 DB 예약 상태 복구 |
+| OpenUSD 최적화 | 143개 바닥 QR mesh를 instanceable 구조로 바꿔 렌더링 부하 감소 |
+| DOM 최적화 | CSS absolute positioning으로 대시보드 layout/paint 부하 감소 |
+
+### 핵심 성과
+
+- 데이터 평면(PostgreSQL/Redis)과 제어 평면(ROS2)을 분리하여 실시간성과 데이터 무결성 동시 확보.
+- JIT pause_status와 Look-ahead buffer로 AMR과 로봇 팔의 병목/충돌 문제 해결.
+- Dashboard와 IsaacSim 성능 병목을 분석해 시뮬레이션과 웹 관제 성능을 개선.
+
+</details>
 
 ---
 
-## 8. 운영체제 및 사용 장비
+## 8. ROS 2 인터페이스 요약
 
-### 8.1 소프트웨어 환경
+| 인터페이스 | 타입 | 사용 영역 | 설명 |
+|---|---|---|---|
+| `/manage_workstation` | Action | Control Tower → AMR Bridge | 작업대 이송 명령 |
+| `/amr_01/manage_workstation` ~ `/amr_05/manage_workstation` | Action | 외부 PC → 특정 AMR | 특정 AMR 강제 배정 명령 |
+| `ReportInboundProgress` | Service | SH5/SG2 → Control Tower | 슬롯 적재 진행률 보고 |
+| `CheckWarehouseStatus` | Service | SH5/SG2 → Control Tower | 패키지/고객/창고 상태 조회 |
+| `TransitPackage` | Service | Sim Sync | 분산 시뮬레이션 간 상자 이동 동기화 |
+| `GetDailyPackageList` | Service | Dashboard/Control Tower | 금일 출고 대상 패키지 목록 조회 |
+| `/{robot_id}/pause_status` | Topic `std_msgs/Bool` | Control Tower → SH5/SG2 | AMR 도킹·회전 중 로봇 팔 일시정지 |
+| `/sim/sg2_workstation_trigger` | Topic | Control Tower → IsaacSim | 작업대 Spawn/Despawn 트리거 |
+| `/sim/sg2_spawn_trigger` | Topic | Sim Sync → IsaacSim | 상자 Spawn 트리거 |
+
+---
+
+## 9. 개발 환경
 
 | 구분 | 내용 |
 |---|---|
 | OS | Ubuntu 22.04 LTS |
 | ROS | ROS 2 Humble |
-| Python | Python 3.10 |
-| DDS | CycloneDDS |
-| RMW | `rmw_cyclonedds_cpp` |
-| ROS_DOMAIN_ID | `119` |
-| Simulation | NVIDIA Isaac Sim / IsaacLab |
-| Database | PostgreSQL 15, Redis 7.0 |
-| Backend | FastAPI, Uvicorn |
-| Computer Vision | OpenCV, QR Decoder |
-| Learning | PyTorch, ACT imitation learning |
-| Asset | OpenUSD / USD prim |
-
-### 8.2 사용 장비 및 시뮬레이션 객체
-
-| 구분 | 수량 | 설명 |
-|---|---:|---|
-| Main PC | 1 | IsaacSim, AMR Controller, Bridge 실행 |
-| Control Tower PC | 1 | ROS2 명령 송신, 대시보드, DB 운영 |
-| AMR | 5 | `AMR_01` ~ `AMR_05` |
-| SH5 Dual-arm Robot | 3 | `sg2_in_01`, `sg2_in_02`, `sg2_in_03` |
-| Workstation / Rack | 10+ | 작업대 이송 및 슬롯 적재 대상 |
-| QR Marker | 다수 | AMR 위치 보정 및 패키지 확인 |
-| GPU | NVIDIA GPU 권장 | IsaacSim 렌더링 및 비전 처리 |
-| Network | Wi-Fi | ROS2 DDS 통신 |
-
-### 8.3 주요 좌표 기준
-
-AMR grid는 1.5m 간격을 사용합니다.
-
-```text
-world_x = cell_x * 1.5
-world_y = cell_y * 1.5
-```
-
-| Target | World 좌표 | Cell |
-|---|---:|---:|
-| `sg2_in_01_B` | `(6.0, 1.5)` | `(4, 1)` |
-| `sg2_in_02_B` | `(6.0, -3.0)` | `(4, -2)` |
-| `sg2_in_03_B` | `(6.0, -7.5)` | `(4, -5)` |
-| `sg2_out_00_A` | `(-4.5, 9.0)` | `(-3, 6)` |
-| `sg2_out_00_B` | `(-4.5, 7.5)` | `(-3, 5)` |
+| RMW | CycloneDDS 권장 |
+| Language | Python 3.10 |
+| Simulator | NVIDIA Isaac Sim / Isaac Lab |
+| Robot Simulation | AMR 5대, SH5 Dual-arm Robot 3대 |
+| DB | PostgreSQL 15, Redis 7.0 |
+| Backend | FastAPI, Uvicorn, WebSocket |
+| AI / Learning | PyTorch, ACT imitation learning, HDF5 dataset |
+| Visualization | FastAPI Dashboard, Adminer, Redis Commander, IsaacSim Viewport |
+| Container | Docker Compose |
 
 ---
 
-## 9. 의존성
+## 10. 사용 장비 및 시뮬레이션 구성
 
-### 9.1 ROS 2 / 시스템 패키지
-
-```bash
-sudo apt update
-sudo apt install -y \
-  ros-humble-desktop \
-  ros-humble-rmw-cyclonedds-cpp \
-  ros-humble-std-msgs \
-  ros-humble-std-srvs \
-  python3-colcon-common-extensions \
-  python3-pip \
-  python3-venv \
-  docker.io \
-  docker-compose-plugin
-```
-
-### 9.2 Python 의존성
-
-```bash
-python3 -m pip install -r requirements.txt
-```
-
-권장 `requirements.txt` 예시:
-
-```txt
-fastapi
-uvicorn
-psycopg2-binary
-redis
-numpy
-opencv-python
-h5py
-torch
-torchvision
-tqdm
-pyyaml
-python-dotenv
-```
-
-> `rclpy`, `std_msgs`, `cobot3_interfaces`는 pip가 아니라 ROS 2 workspace에서 제공됩니다.  
-> `isaacsim`, `isaaclab`, `omni`, `pxr`는 일반 Python이 아니라 IsaacSim/IsaacLab 실행 환경에서 제공됩니다.
-
-### 9.3 Docker 서비스
-
-`YJH/docker/docker-compose.yml`은 다음 서비스를 실행합니다.
-
-| 서비스 | 포트 | 용도 |
-|---|---:|---|
-| PostgreSQL | `5432` | WMS 영속 데이터 저장 |
-| Redis | `6379` | 실시간 캐시, AMR 상태, ZSET 큐 |
-| Adminer | `8082` | PostgreSQL 웹 조회 |
-| Redis Commander | `8081` | Redis 웹 조회 |
+| 구분 | 항목 | 설명 |
+|---|---|---|
+| AMR | `AMR_01` ~ `AMR_05` | 작업대 운반, stage/SG 위치 이동 |
+| 작업대 | `WS_01` ~ `WS_10`, `RACK_01` ~ `RACK_10` | 패키지 적재 및 이동 대상 |
+| SH5 | 3대 쌍팔 로봇 | 입고/출고 라인에서 박스 pick & place 수행 |
+| Package | `PKG_YYYYMMDD_xxx.usd` | 물류 상자 에셋 |
+| Warehouse | `finalfac.usd`, `Final_Factory.usd` | IsaacSim 공장/창고 환경 |
+| QR Grid | 1.5m 간격 floor QR | AMR 위치 인식 및 grid cell 매핑 |
+| DB Server | PostgreSQL / Redis | WMS 데이터와 실시간 상태 저장 |
+| Dashboard | FastAPI + Browser | AMR, 작업대, 패키지 상태 모니터링 |
 
 ---
 
-## 10. 실행 순서
+## 11. 설치 및 실행 순서
 
-### 10.1 저장소 준비
+> 실제 실행은 각 팀원 폴더의 README/DEBUGGING을 기준으로 세부 경로를 맞춘다. 아래는 루트 README용 표준 실행 흐름이다.
 
-```bash
-git clone <YOUR_REPOSITORY_URL>
-cd SNFC
-```
-
-### 10.2 ROS 2 환경 설정
+### 11.1 공통 ROS2 환경
 
 ```bash
 source /opt/ros/humble/setup.bash
 export ROS_DOMAIN_ID=119
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export ROS_LOCALHOST_ONLY=0
 ```
 
-Wi-Fi 기반 다른 PC와 통신할 경우 CycloneDDS XML을 설정합니다.
+멀티 PC에서 사용할 경우 CycloneDDS 설정 파일을 로드한다.
 
 ```bash
-export CYCLONEDDS_URI=file://$HOME/.ros/cyclonedds_wifi.xml
+export CYCLONEDDS_URI=file://$HOME/.ros/cyclonedds_wifi_config.xml
 ```
 
-### 10.3 Control Tower / DB 실행
+### 11.2 Python 의존성 설치
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+ROS2, IsaacSim, IsaacLab, Doosan/Robotis 관련 모듈은 pip 패키지가 아니라 각 워크스페이스 또는 시뮬레이터 환경에서 제공된다.
+
+### 11.3 Control Tower / DB / Dashboard 실행
 
 ```bash
 cd YJH
@@ -589,38 +534,27 @@ python3 docker/init_june_8th_state.py
 python3 scratch/dashboard_server.py
 ```
 
-대시보드 기본 접속 주소:
+대시보드 접속:
 
 ```text
 http://localhost:8009
 ```
 
-### 10.4 AMR Bridge 실행
-
-AMR 최종 파일은 YSW 문서 기준으로 다음 파일을 사용합니다.
-
-```text
-fleet_manager_bridge_node_gpu_v43_guarded_actions.py
-amr_live_existing_stage_true8_qr_camera_controller_gpu_v42_cost_aware_global.py
-run_bridge_gpu.sh
-```
-
-실행 예시:
+### 11.4 AMR Bridge 실행
 
 ```bash
 cd ~/isaaclab_ws/isaac_aruco/amr
-mkdir -p bridge_queue/{commands,status,results,cancel,done}
-chmod +x run_bridge_gpu.sh
 ./run_bridge_gpu.sh
 ```
 
-Action Server 확인:
+검증:
 
 ```bash
+ros2 node list
 ros2 action list | grep manage_workstation
 ```
 
-정상 출력 예시:
+정상 기준:
 
 ```text
 /manage_workstation
@@ -631,193 +565,168 @@ ros2 action list | grep manage_workstation
 /amr_05/manage_workstation
 ```
 
-### 10.5 IsaacSim AMR Controller 실행
+### 11.5 IsaacSim AMR Controller 실행
 
-IsaacSim Script Editor에서 실행합니다.
+IsaacSim Script Editor에서 실행:
 
 ```python
 exec(open('/home/rokey/isaaclab_ws/isaac_aruco/amr/amr_live_existing_stage_true8_qr_camera_controller_gpu_v42_cost_aware_global.py', encoding='utf-8').read())
 ```
 
-### 10.6 SH5 ROS2 Bridge 실행
+시나리오 명령 실행:
 
 ```bash
-cd SNFC/CEY/scripts
-source /opt/ros/humble/setup.bash
-export ROS_DOMAIN_ID=119
-python3 ros2_sh5_bridge.py
+cd ~/isaaclab_ws/isaac_aruco/amr
+./send_business_open_sequence_v1.sh
 ```
 
-### 10.7 SH5 IsaacSim 시연 실행
-
-IsaacSim/IsaacLab 환경에서 실행합니다.
+### 11.6 SH5 3-Robot 시뮬레이션 실행
 
 ```bash
-cd SNFC/CEY/scripts
-python3 sh5_bringup_ros2_3robot.py --slot 1
+cd CEY
+isaac-python scripts/sh5_bringup_ros2_3robot.py
 ```
 
-환경에 따라 `isaac-python` 또는 IsaacLab의 launcher를 사용해야 할 수 있습니다.
-
-### 10.8 테스트 명령
-
-SH5 파일 큐 직접 테스트:
+ROS2 ↔ SH5 bridge:
 
 ```bash
-echo '{"package_id":"PKG_001","qr_id":"QR_001","customer_id":"CUST_A","target_line":"sg2_in_01"}' >> /tmp/sh5_queue.jsonl
+python3 scripts/ros2_sh5_bridge.py
 ```
 
-AMR Action 테스트는 프로젝트의 `ManageWorkstation.action` 빌드 후 goal을 전송합니다.
+패키지 트리거 테스트:
 
 ```bash
-ros2 action list | grep manage_workstation
+bash scripts/send_packages.sh
 ```
 
 ---
 
-## 11. 주요 환경 변수
+## 12. 의존성
 
-### 11.1 ROS / DDS
+### 12.1 Python requirements 예시
 
-```bash
-export ROS_DOMAIN_ID=119
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-export CYCLONEDDS_URI=file://$HOME/.ros/cyclonedds_wifi.xml
+```txt
+numpy
+opencv-python
+h5py
+torch
+torchvision
+tqdm
+fastapi
+uvicorn
+redis
+psycopg2-binary
+pydantic
+python-multipart
 ```
 
-### 11.2 AMR Controller
+### 12.2 시스템 패키지 예시
 
 ```bash
-export AMR_GPU_ENABLED=1
-export AMR_QR_GPU_PREPROCESS_ENABLED=1
-export AMR_QR_CUDA_DEVICE_ID=0
-export AMR_OPENCV_CPU_THREADS=1
-export AMR_RESERVATION_HORIZON=35
-export AMR_COST_AWARE_GLOBAL_REROUTE_ENABLED=1
-export AMR_COST_AWARE_REROUTE_MIN_WAIT_STEPS=3
-export AMR_COST_AWARE_REROUTE_FORCE_AFTER_WAIT_STEPS=18
-export AMR_COST_AWARE_REROUTE_MAX_EXTRA_CELLS_EMPTY=5.0
-export AMR_COST_AWARE_REROUTE_MAX_EXTRA_CELLS_CARRY=3.0
-export AMR_SG_LOCAL_MACRO_ROUTE_ENABLED=1
-export AMR_SG_LOCAL_MACRO_LOG_ENABLED=1
+sudo apt update
+sudo apt install -y \
+  python3-pip \
+  python3-venv \
+  python3-colcon-common-extensions \
+  ros-humble-desktop \
+  ros-humble-rmw-cyclonedds-cpp
 ```
 
-### 11.3 Bridge
+Docker 기반 DB:
 
 ```bash
-export AMR_BRIDGE_EXECUTOR_THREADS=2
-export AMR_BRIDGE_ADMISSION_GUARD=1
+docker compose -f YJH/docker/docker-compose.yml up -d
 ```
 
 ---
 
-## 12. 실행 성공 기준
+## 13. 디버깅 및 설계 개선 요약
 
-| 구분 | 정상 기준 |
+| 담당 | 문제 | 원인 | 해결 |
+|---|---|---|---|
+| YSW | 상대 PC에서 ROS2 Action Server가 보이지 않음 | CycloneDDS interface가 thunderbolt0으로 고정 | Wi-Fi interface 기준 CycloneDDS XML 수정 |
+| YSW | `setup.bash` unbound variable 오류 | shell script의 `set -u`와 ROS setup 충돌 | ROS source 구간만 `set +u` 적용 |
+| YSW | 같은 목적지에 작업대 2개가 배정됨 | 중복 target_location 명령이 controller로 전달 | Bridge admission guard에서 `DUPLICATE_TARGET` reject |
+| YSW | AMR이 막혔을 때 wait만 증가 | wait/detour 비용 비교 없음 | cost-aware global reroute 적용 |
+| YSW | QR MISS 또는 cell jump 가능성 | 이동 중 QR 오인식, transform과 QR 불일치 | QR safety gate 적용 |
+| CEY | SH5 replay 시작 시 텔레포트 발생 | 현재 자세와 첫 HDF5 frame 차이 | `WARMUP_FRAMES=30` 선형 보간 |
+| CEY | 파지 손이 잘못 선택됨 | 좌/우 손 선택 기준이 불안정 | HDF5 box trajectory 기반 guided snapping 적용 |
+| CEY | yo-yo 현상과 시뮬레이션 불안정 | kinematic box에 velocity를 쓰며 PhysX 에러 누적 | `_write_box_pose()`로 velocity 없이 pose만 적용 |
+| CEY | 작업대가 AMR/SH5 화면에서 동기화되지 않음 | RACK prim 상태 관리 부재 | WorkstationManager Spawn/Despawn 구현 |
+| YJH | PostgreSQL에 실시간 위치 업데이트 부하 | 고주파 AMR 상태가 RDB로 직접 쓰임 | Redis Hash/ZSET으로 실시간 데이터 분리 |
+| YJH | 로봇 팔과 AMR 물리 충돌 가능 | AMR 도킹/회전 시 팔 제어권이 계속 활성 | JIT `pause_status` 인터로킹 구현 |
+| YJH | 작업대 교체 시 로봇 팔 유휴 대기 증가 | 다음 작업대 준비가 늦음 | Look-ahead A/B buffer 도입 |
+| YJH | IsaacSim QR mesh로 FPS 저하 | 143개 개별 QR mesh draw call 병목 | OpenUSD instanceable 구조 적용 |
+| YJH | Dashboard CPU 점유율 과다 | DOM layout/paint 리플로우 병목 | CSS absolute DOM 구조로 최적화 |
+
+---
+
+## 14. 현재 구현 상태
+
+| 항목 | 상태 |
 |---|---|
-| DB | `warehouse_postgres`, `warehouse_redis` 컨테이너 실행 |
-| Dashboard | `http://localhost:8009` 접속 가능 |
-| ROS2 Bridge | `/manage_workstation`, `/amr_01~05/manage_workstation` 표시 |
-| AMR Controller | command JSON scan 로그 출력 |
-| Global Arbiter | 이동 승인/보류 로그 출력 |
-| Cost-aware Reroute | `COST_DECISION` 로그 출력 |
-| SH5 Bridge | `/sim/sg2_spawn_trigger`, `/tmp/sh5_queue.jsonl` 연동 |
-| SH5 Replay | 3대 SH5 robot이 각 라인에서 pick & place 수행 |
+| AMR 5대 작업대 운반 시나리오 | 구현 완료 |
+| ROS2 Action 기반 AMR 명령 구조 | 구현 완료 |
+| Bridge Queue command/status/result 구조 | 구현 완료 |
+| Global Arbiter 충돌 회피 | 구현 완료 |
+| Cost-aware Reroute | 구현 완료 |
+| Bridge Admission Guard | 구현 완료 |
+| QR 위치 인식 및 safety gate | 구현 완료 |
+| SH5 HDF5 데이터 수집 파이프라인 | 구현 완료 |
+| SH5 ACT 학습 및 replay 시연 | 구현 완료 |
+| SH5 3대 병렬 시연 | 구현 완료 |
+| HDF5-Guided Snapping | 구현 완료 |
+| Workstation Spawn/Despawn | 구현 완료 |
+| PostgreSQL/Redis 하이브리드 DB | 구현 완료 |
+| Redis ZSET 작업 스케줄러 | 구현 완료 |
+| JIT pause_status 인터로킹 | 구현 완료 |
+| Look-ahead 작업대 사전 이송 | 구현 완료 |
+| FastAPI Dashboard | 구현 완료 |
+| GitHub README 및 DEBUGGING 문서화 | 구현 완료 |
 
 ---
 
-## 13. 디버깅 요약
+## 15. GitHub 업로드 전 보안 주의사항
 
-| 문제 | 원인 | 해결 |
-|---|---|---|
-| 상대 PC에서 Action Server가 안 보임 | CycloneDDS interface가 `thunderbolt0`로 고정 | Wi-Fi interface 기준 XML 수정 |
-| 같은 목적지로 작업대 2개가 이동 | target_location 중복 명령 | Bridge Admission Guard에서 reject |
-| AMR이 멈췄는데 no_path=0 | 경로는 있으나 Global Arbiter가 이동 보류 | wait/reroute 판단 로그 확인 |
-| AMR이 오래 기다림 | wait와 detour 비용 비교 없음 | Cost-aware Global Reroute 적용 |
-| LOCAL_ENTRY 중간에서 막힘 | route 중간 static blocker 미검사 | Local Macro route 전체 blocker 검사 |
-| QR 위치 jump | 이동 중 QR 오인식 | QR safety gate 적용 |
-| IsaacSim FPS 저하 | 바닥 QR mesh draw call 과부하 | OpenUSD instancing 최적화 |
-| SH5 재생 시작 순간이동 | 현재 자세에서 첫 frame까지 보간 없음 | `WARMUP_FRAMES=30` 적용 |
-| SH5 비동작 팔 간섭 | 원본 episode에 idle arm 움직임 포함 | `freeze_idle_arms.py` 전처리 |
-
----
-
-## 14. 팀원별 담당 영역
-
-| 담당 | 폴더 | 주요 역할 |
-|---|---|---|
-| 윤성웅 | `YSW` | 팀장, 프로젝트 기획, AMR Fleet 시나리오, ROS2 Bridge, IsaacSim Controller, Time A*, Reservation Table, Global Arbiter, Cost-aware Reroute, Admission Guard, README/PPT 정리 |
-| 윤 | `YJH` | Control Tower, FastAPI Dashboard, PostgreSQL/Redis, ZSET Scheduling, Look-ahead Buffer, JIT Interlocking, DB rollback, OpenUSD 최적화 |
-| 최은예 | `CEY` | SH5 IsaacSim 시뮬레이션, VR 데이터 수집, HDF5 pipeline, ACT 학습, 3대 SH5 병렬 replay, ROS2 SH5 bridge, 작업대 Spawn/Despawn |
-
----
-
-## 15. 참고 문서
-
-| 문서 | 설명 |
-|---|---|
-| `YSW/README.md` | 성웅 담당 작업 타임라인 및 AMR Fleet 기여 정리 |
-| `YSW/DEBUGGING.md` | AMR Bridge / Controller / Global Arbiter / Reroute 디버깅 |
-| `YSW/system_design.md` | AMR 시스템 설계 상세 |
-| `YSW/feature_operation.md` | 주요 기능별 동작 흐름 |
-| `YSW/execution_guide.md` | AMR 실행 순서 |
-| `YSW/requirements.md` | AMR 의존성 및 환경 변수 |
-| `YSW/troubleshooting.md` | AMR 실행 오류 해결 |
-| `YJH/README.md` | Control Tower / DB / Dashboard / 최적화 기여 정리 |
-| `YJH/DEBUGGING.md` | 관제탑 시스템 개선 및 디버깅 통합 보고서 |
-| `YJH/docs/CONTROL_TOWER_ARCHITECTURE.md` | Control Tower 노드 토폴로지와 파이프라인 |
-| `YJH/docs/HANDOFF_INTEGRATION_GUIDE.md` | ROS2 interface 통합 가이드 |
-| `CEY/README.md` | SH5 시뮬레이션 / 학습 / 재생 파이프라인 정리 |
-| `CEY/DEBUGGING.md` | SH5 개발 및 안정화 로그 |
-
----
-
-## 16. GitHub 업로드 전 주의사항
-
-공개 저장소에 업로드하기 전 다음 파일은 반드시 제외하거나 별도 관리합니다.
+공개 저장소에 올리기 전 아래 파일은 반드시 제외한다.
 
 ```gitignore
 .env
 *.json
 *.pt
+*.pth
 *.hdf5
 *.h5
 __pycache__/
 *.pyc
 .DS_Store
 log/
-*.log
+logs/
 ```
 
-주의:
+> DB 비밀번호, API Key, Firebase/클라우드 인증 파일, 학습 가중치, 대용량 HDF5 데이터셋은 공개 저장소에 올리지 않는다.
 
-```text
-- DB 비밀번호, API key, Firebase key, SSH key는 절대 업로드하지 않는다.
-- 대용량 학습 데이터셋과 checkpoint는 Git LFS 또는 외부 저장소를 사용한다.
-- IsaacSim USD asset은 용량이 크므로 필요 시 압축 또는 별도 릴리즈로 관리한다.
-```
+---
+
+## 16. 참고 문서
+
+| 문서 | 설명 |
+|---|---|
+| `YSW/README.md` | 윤성웅 AMR Fleet / Bridge / Global Arbiter 기여 정리 |
+| `YSW/DEBUGGING.md` | AMR 및 Bridge 디버깅 상세 기록 |
+| `CEY/README.md` | 최은예 SH5 / HDF5 / ACT / 3로봇 시연 기여 정리 |
+| `CEY/DEBUGGING.md` | SH5 개발 일지 및 파지 안정화 디버깅 기록 |
+| `YJH/README.md` | 윤재현 Control Tower / DB / Dashboard 기여 정리 |
+| `YJH/DEBUGGING.md` | 관제탑 개선 계획, 아키텍처 변경, 개발 이력 |
+| `YJH/docs/CONTROL_TOWER_ARCHITECTURE.md` | 관제탑 노드 토폴로지 및 물류 파이프라인 |
+| `YJH/docs/HANDOFF_INTEGRATION_GUIDE.md` | ROS2 인터페이스 및 통합 가이드 |
 
 ---
 
 ## 17. 최종 정리
 
-SNFC는 AMR, SH5 로봇, Control Tower, DB, Dashboard를 단순히 병렬로 배치한 프로젝트가 아니라, **실제 물류창고에서 발생하는 다중 로봇 병목·중복 명령·물리 충돌·실시간 상태 동기화 문제를 하나의 운영 흐름으로 연결한 통합 시뮬레이션**입니다.
+SNFC는 AMR, SH5 로봇, Control Tower를 각각 따로 만든 프로젝트가 아니라, 세 파트를 하나의 물류 자동화 시스템으로 연결한 통합 프로젝트이다.
 
-핵심 성과는 다음과 같습니다.
+윤성웅은 AMR Fleet와 Bridge, Global Arbiter, cost-aware reroute를 통해 **다중 AMR 주행 안정성**을 담당하였다. 최은예는 HDF5 기반 데이터 수집·전처리·ACT 학습·3대 SH5 병렬 시연을 통해 **로봇 팔 적재/포장 자동화**를 담당하였다. 윤재현은 PostgreSQL/Redis 기반 관제탑, ZSET 스케줄러, JIT 인터로킹, FastAPI Dashboard를 통해 **전체 물류 흐름의 중앙 제어와 실시간 관제**를 담당하였다.
 
-```text
-1. ROS2 Action 기반 AMR 작업대 이송 구조 구현
-2. Bridge Queue 기반 IsaacSim Controller 연동
-3. Bridge Admission Guard로 중복 명령 사전 차단
-4. Time A* + Reservation Table로 다중 AMR 경로계획 수행
-5. Global Arbiter로 tick 단위 충돌 회피 수행
-6. Cost-aware Reroute로 WAIT/REROUTE 비용 판단 수행
-7. Control Tower + PostgreSQL + Redis 기반 WMS 관제 구조 구현
-8. Redis ZSET 기반 우선순위 스케줄링 적용
-9. JIT pause_status 인터로킹으로 AMR-로봇 팔 충돌 방지
-10. SH5 3대 병렬 pick & place와 HDF5/ACT 기반 재생 파이프라인 구현
-11. FastAPI Dashboard와 DB 상태 동기화 구조 구현
-12. IsaacSim OpenUSD 인스턴싱으로 렌더링 성능 개선
-```
-
-이 프로젝트는 일반적인 공장 물류 자동화의 고정형 알고리즘을 그대로 따르지 않고, **직접 설계한 AMR 경로계획·관제·스케줄링 알고리즘으로 더 최적화된 창고 운영을 구현하고 검증하려는 시도**라는 점에서 의미가 있습니다.
+최종적으로 SNFC는 기존 공장 자동화의 단순 고정 룰이 아니라, 직접 설계한 최적화 알고리즘을 기반으로 AMR 대기시간, 로봇 팔 유휴시간, 목적지 중복, 물리 충돌, 시뮬레이션 렌더링 병목을 줄이는 방향으로 구현되었다.
