@@ -536,3 +536,4 @@ Arbiter reject 발생
 특히 중복 목적지로 인해 AMR이 멈추는 문제를 단순 경로계획 문제가 아니라 명령 충돌 문제로 분류하고, bridge 단계에서 중복 workstation, 중복 target, 중복 AMR 명령을 차단하도록 개선한 점이 주요 성과이다. 또한 AMR이 막혔을 때 무조건 기다리는 방식에서 벗어나, 기다림과 우회 비용을 비교하는 cost-aware global reroute 구조를 추가하여 다중 AMR 주행의 효율성을 높였다.
 
 결과적으로 협동3 프로젝트에서 성웅은 팀장으로서 기획, 시나리오 설계, 팀 조율, 문서화, PPT 제작, 발표를 담당했고, 기술적으로는 ROS2와 IsaacSim을 연결하는 핵심 구조와 다중 AMR 주행 안정성 개선을 주도하였다.
+https://teamsparkx.notion.site/ROKEY-7-Workspace-349563918e5980cb9090e1d055b479df#34f563918e5980d687abca1454b6aafd
