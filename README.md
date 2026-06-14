@@ -283,7 +283,7 @@ flowchart LR
     AMRBridge -->|Action Feedback/Result| CT
 
     CT -->|Package / Pause / WS Trigger| SH5Bridge[ROS2 SH5 Bridge]
-    SH5Bridge --> SH5Queue[/tmp/sh5_*.jsonl]
+    SH5Bridge --> SH5Queue["/tmp/sh5_*.jsonl"]
     SH5Queue --> SH5Ctrl[IsaacSim SH5 3-Robot Controller]
     SH5Ctrl --> SH5[SH5 sg2_in_01~03]
     SH5Ctrl -->|QR / Report| SH5Bridge
@@ -1156,7 +1156,7 @@ flowchart LR
     AMRPlanner --> AMR[AMR_01~05]
 
     CT --> SH5Bridge[SH5 Bridge]
-    SH5Bridge --> TmpQueue[/tmp/sh5_*.jsonl]
+    SH5Bridge --> TmpQueue["/tmp/sh5_*.jsonl"]
     TmpQueue --> SH5Ctrl[SH5 3-Robot Controller]
     SH5Ctrl --> SH5[sg2_in_01~03]
 
